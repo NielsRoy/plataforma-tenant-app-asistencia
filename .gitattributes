@@ -1,0 +1,10 @@
+# Scripts y plantillas que se ejecutan en Linux deben conservar LF aunque se clone en Windows
+*.sh        text eol=lf
+*.tf        text eol=lf
+*.hcl       text eol=lf
+*.pkr.hcl   text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.j2        text eol=lf
+*.tftpl     text eol=lf
+Dockerfile  text eol=lf

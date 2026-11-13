@@ -27,10 +27,3 @@ Cada backend conserva sus usuarios y sus datos en su propia base.
 El alta directa de instituciones, la auditoría y el monitoreo tienen pantallas
 de demostración. El flujo de solicitudes e invitaciones usa la API y la base de
 la plataforma. El aprovisionamiento automático desde el panel está pendiente.
-
-## Infraestructura y despliegue de tenants
-
-La plataforma despliega cada institución en AWS con Terraform: tres EC2 (frontend,
-backend y base de datos) creadas desde AMIs de Packer, configuradas con cloud-init y
-Ansible y monitoreadas con Prometheus y Grafana. Consulta
-[docs/arquitectura.md](docs/arquitectura.md), [infra/](infra/) y [monitoring/](monitoring/).
