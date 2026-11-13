@@ -5,3 +5,44 @@
 .env
 .env.*
 !.env.example
+
+/info
+
+# Terraform / OpenTofu
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Packer
+packer_cache/
+manifest.json
+
+# Ansible
+*.retry
+infra/ansible/inventory/generated/
+
+# Claves y certificados
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# Artefactos de despliegue generados por la plataforma
+.artifacts/
+.workspaces/
+
+# Targets de Prometheus generados por la plataforma
+monitoring/prometheus/targets/*.json

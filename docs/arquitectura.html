@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arquitectura multitenant</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2433; --muted: #5b6475; --line: #c9cfdb;
+    --local: #e8f0fe; --local-b: #4a7bd8; --aws: #fff4e5; --aws-b: #d9822b;
+    --pub: #e7f6ec; --pub-b: #2f9e5b; --priv: #f3eefc; --priv-b: #7a55c7; --mon: #fdecef; --mon-b: #c8455d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151c; --panel: #1b2029; --ink: #e6e9ef; --muted: #9aa3b5; --line: #3a4252;
+      --local: #1c2a44; --aws: #33281a; --pub: #17301f; --priv: #261f38; --mon: #3a1c24;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.lead { color: var(--muted); margin: 0 0 20px; }
+  .grid { display: grid; grid-template-columns: 1fr 1.6fr; gap: 16px; align-items: start; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .zone { border: 2px solid; border-radius: 12px; padding: 12px; }
+  .zone > h2 { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; margin: 0 0 10px; }
+  .local { background: var(--local); border-color: var(--local-b); }
+  .aws { background: var(--aws); border-color: var(--aws-b); }
+  .box { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+  .box b { display: block; }
+  .box small { color: var(--muted); }
+  .row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
+  .sub { border: 1.5px dashed; border-radius: 10px; padding: 10px; margin-bottom: 10px; }
+  .pub { background: var(--pub); border-color: var(--pub-b); }
+  .priv { background: var(--priv); border-color: var(--priv-b); }
+  .mon { background: var(--mon); border-color: var(--mon-b); }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 99px; border: 1px solid var(--line); margin: 2px 2px 0 0; background: var(--panel); }
+  .flows { margin-top: 20px; }
+  .flows table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 8px; overflow: hidden; }
+  .flows th, .flows td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .flows th { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  code { font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Arquitectura de la plataforma multitenant</h1>
+  <p class="lead">Un tenant = 3 EC2 (frontend, backend, base de datos) creadas por Terraform desde AMIs de Packer, configuradas con cloud-init + Ansible y observadas desde Prometheus/Grafana locales.</p>
+
+  <div class="grid">
+    <section class="zone local">
+      <h2>PC del operador</h2>
+      <div class="box"><b>Plataforma · Admin-institucional</b><small>React :5175 → API Express :4300 · worker de operaciones en segundo plano</small></div>
+      <div class="box"><b>PostgreSQL de la plataforma</b><small>planes, tenants, operaciones, logs, alertas, secretos cifrados</small></div>
+      <div class="box"><b>Toolbox IaC (Docker)</b><small>terraform · packer · ansible · tflint · trivy · checkov · aws-cli</small></div>
+      <div class="sub mon">
+        <b>Monitoreo (docker compose)</b>
+        <div class="box" style="margin-top:8px"><b>Prometheus :9090</b><small>pull cada 15 s · file_sd <code>targets/&lt;slug&gt;.json</code></small></div>
+        <div class="box"><b>Grafana :3001</b><small>dashboards por tenant/entorno · alertas → webhook a la plataforma</small></div>
+      </div>
+    </section>
+
+    <section class="zone aws">
+      <h2>AWS · us-east-1</h2>
+      <div class="box"><b>Bootstrap (una vez)</b><small>S3 estado Terraform (versionado, cifrado, lockfile) · key pair · AMIs de Packer</small></div>
+      <div class="sub pub">
+        <b>VPC por defecto · aislamiento por Security Groups</b>
+        <div class="sub priv" style="margin-top:8px">
+          <b>Tenant A</b>
+          <div class="row" style="margin-top:8px">
+            <div class="box"><b>EC2 frontend</b><small>Nginx :80 público → React + proxy /api</small><br><span class="tag">EIP</span></div>
+            <div class="box"><b>EC2 backend</b><small>NestJS :3000 · solo desde SG frontend A</small></div>
+            <div class="box"><b>EC2 base de datos</b><small>PostgreSQL :5432 · solo desde SG backend A</small></div>
+          </div>
+        </div>
+        <div class="sub priv">
+          <b>Tenant B</b>
+          <div class="row" style="margin-top:8px">
+            <div class="box"><b>EC2 frontend</b><small>misma AMI, SGs propios</small></div>
+            <div class="box"><b>EC2 backend</b><small>solo desde SG frontend B</small></div>
+            <div class="box"><b>EC2 base de datos</b><small>rechaza al backend de A</small></div>
+          </div>
+        </div>
+        <small>En las tres instancias, :22 y los puertos de métricas solo aceptan conexiones desde la IP del operador.</small>
+      </div>
+      <div class="box"><b>Agentes en cada EC2 (horneados por Packer)</b>
+        <span class="tag">node_exporter :9100</span><span class="tag">process-exporter :9256</span><span class="tag">netdata :19999</span><span class="tag">otel collector :8889</span>
+      </div>
+    </section>
+  </div>
+
+  <section class="flows">
+    <table>
+      <thead><tr><th>Flujo</th><th>Origen → destino</th><th>Detalle</th></tr></thead>
+      <tbody>
+        <tr><td>Aprovisionar</td><td>Plataforma → Toolbox → AWS</td><td>scan → <code>terraform init/plan/apply</code> → outputs → <code>ansible-playbook</code> por SSH directo a cada EC2</td></tr>
+        <tr><td>Usuarios del tenant</td><td>Navegador → frontend :80 → backend :3000 → BD :5432</td><td>Cada salto solo lo permite el SG del mismo tenant</td></tr>
+        <tr><td>Métricas</td><td>Prometheus (PC) → cada EC2 :9100 · :9256 · :19999 · :8889</td><td>Modelo pull; puertos abiertos solo a la IP del operador</td></tr>
+        <tr><td>Paneles</td><td>Grafana → Prometheus</td><td>Grafana nunca recibe conexiones de las EC2</td></tr>
+        <tr><td>Alertas</td><td>Grafana → <code>POST /api/platform/alerts/webhook</code></td><td>La plataforma las muestra con tenant y hora de detección</td></tr>
+        <tr><td>Invitación admin</td><td>Plataforma → <code>/api/auth/invitations/bootstrap</code> del tenant</td><td>Flujo ya existente, ahora con URL obtenida de Terraform</td></tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>
