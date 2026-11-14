@@ -1,0 +1,15 @@
+# Las alertas se envían a la plataforma por webhook. La URL y el token vienen de
+# monitoring/.env (Grafana expande las variables de entorno en este archivo).
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: plataforma
+    receivers:
+      - uid: plataforma-webhook
+        type: webhook
+        disableResolveMessage: false
+        settings:
+          url: ${PLATFORM_ALERTS_URL}
+          httpMethod: POST
+          authorization_scheme: Bearer
+          authorization_credentials: ${PLATFORM_ALERTS_TOKEN}

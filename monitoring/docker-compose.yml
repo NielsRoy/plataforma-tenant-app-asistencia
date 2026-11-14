@@ -35,6 +35,13 @@ services:
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # Contact point "plataforma" (grafana/provisioning/alerting): webhook a la API de la
+      # plataforma, que corre en la PC (host.docker.internal) y valida este token.
+      PLATFORM_ALERTS_URL: ${PLATFORM_ALERTS_URL:-http://host.docker.internal:4300/api/platform/alerts/webhook}
+      PLATFORM_ALERTS_TOKEN: ${PLATFORM_ALERTS_TOKEN:?Define PLATFORM_ALERTS_TOKEN en monitoring/.env}
+    # En Linux host.docker.internal no existe por defecto
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro

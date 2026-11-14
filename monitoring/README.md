@@ -3,11 +3,11 @@
 Prometheus y Grafana corren en la PC del operador con `docker compose`.
 
 - **Prometheus** lee (modelo *pull*) las métricas de las EC2 de cada tenant.
-- **Grafana** consulta a Prometheus y muestra el dashboard **Tenants de asistencia**. Las alertas hacia la plataforma se agregan en el siguiente paso.
+- **Grafana** consulta a Prometheus, muestra el dashboard **Tenants de asistencia** y evalúa 7 reglas de alerta: agente caído, app sin responder, errores 5xx, latencia, CPU, memoria y disco. Las alertas se envían por webhook a la plataforma (`POST /api/platform/alerts/webhook`, con `PLATFORM_ALERTS_TOKEN`), que las muestra en la vista **Monitoreo**.
 
 ```powershell
 cd monitoring
-Copy-Item .env.example .env        # define GRAFANA_ADMIN_PASSWORD
+Copy-Item .env.example .env        # define GRAFANA_ADMIN_PASSWORD y PLATFORM_ALERTS_TOKEN
 docker compose up -d
 ```
 

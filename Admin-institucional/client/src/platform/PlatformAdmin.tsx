@@ -26,7 +26,7 @@ const navigation = [
   { id: 'requests', group: 'platform', label: 'Solicitudes', title: 'Solicitudes de instituciones', description: 'Revisa las solicitudes y configura el registro de cada institución.', Icon: ClipboardList },
   { id: 'tenants', group: 'platform', label: 'Instituciones', title: 'Instituciones', description: 'Despliega, suspende, reanuda y elimina instituciones, y sigue cada operación en vivo.', Icon: Building2 },
   { id: 'plans', group: 'platform', label: 'Planes', title: 'Catálogo de planes', description: 'Consulta la capacidad y los recursos que incluye cada plan.', Icon: Layers3 },
-  { id: 'monitoring', group: 'platform', label: 'Monitoreo', title: 'Monitoreo', description: 'Consulta el estado de los servicios y el uso de recursos por institución.', Icon: Activity },
+  { id: 'monitoring', group: 'platform', label: 'Monitoreo', title: 'Monitoreo', description: 'Estado de las instituciones y alertas de Grafana (CPU, memoria, disco, disponibilidad y errores).', Icon: Activity },
   { id: 'audit', group: 'platform', label: 'Auditoría', title: 'Auditoría', description: 'Consulta quién realizó cada acción, cuándo y con qué resultado.', Icon: History },
   { id: 'settings', group: 'admin', label: 'Configuración', title: 'Configuración', description: 'Gestiona las preferencias generales de la plataforma.', Icon: Settings2 },
 ] as const
@@ -38,7 +38,6 @@ const menuGroups = [
 ] as const
 
 const demoViews: Partial<Record<View, ComponentType>> = {
-  monitoring: PlatformMonitoring,
   audit: PlatformAudit,
   settings: PlatformSettings,
 }
@@ -534,7 +533,7 @@ function Console({ user, onLogout }: { user: PlatformUser; onLogout: () => void 
             <PlanInstances plan={plan} />
           </article>)}
           {plans.length === 0 && <div className="pa-card pa-empty">El catálogo está vacío.</div>}
-        </div> : view === 'tenants' ? <TenantsView key={tenantFocus} plans={plans} initialTenantId={tenantFocus} revision={revision} onSessionExpired={onLogout} /> : <>
+        </div> : view === 'monitoring' ? <PlatformMonitoring revision={revision} onSessionExpired={onLogout} /> : view === 'tenants' ? <TenantsView key={tenantFocus} plans={plans} initialTenantId={tenantFocus} revision={revision} onSessionExpired={onLogout} /> : <>
           {view === 'requests' && <div className="pa-stats" aria-label="Resumen de solicitudes">
             <div className="pa-card"><span className="pa-icon-tile"><ClipboardList size={20} /></span><div><p>Solicitudes totales</p><strong>{requests.length}</strong></div></div>
             <div className="pa-card"><span className="pa-icon-tile pa-icon-amber"><Clock3 size={20} /></span><div><p>Pendientes</p><strong>{pending}</strong></div></div>

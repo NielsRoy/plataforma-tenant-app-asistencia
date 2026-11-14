@@ -49,6 +49,8 @@ control-asistencia-academica/
 | `server/src/provisioning/` | Worker y motor de aprovisionamiento. Ver la tabla siguiente. |
 | `server/package.json` | Script `npm run op` (CLI de la cola) y `npm run check` con los archivos nuevos. |
 | `server/src/runtime/tenants.js` | API del ciclo de vida de los tenants. Ver la tabla siguiente. |
+| `server/src/runtime/alerts.js` | `POST /api/platform/alerts/webhook` recibe las alertas de Grafana. Lo valida con `PLATFORM_ALERTS_TOKEN` (no con la sesión del operador) y admite hasta 1 MB por lote. Las guarda en `platform_alerts` sin duplicar: usa la clave `fingerprint` más `startsAt`, y al resolverse actualiza la misma fila. `GET /api/platform/alerts?status=&tenant=` las lista para la interfaz (RF-28, RF-29). |
+| `client/src/platform/PlatformMonitoring.tsx` | La vista **Monitoreo** ya no usa datos de demostración. Muestra un resumen (activas, suspendidas, con error, alertas activas), el estado de cada institución con su número de alertas y la lista de alertas activas o el historial, filtrable por institución. Tiene enlaces al dashboard, a las reglas de Grafana y a los targets de Prometheus. Se actualiza cada 15 s. |
 | `server/src/runtime/invitations.js` | `tenantIsActivated(url, { trusted })`: acepta la URL `http://<IP>` de un tenant creado por la plataforma, que no está en `PLATFORM_TENANT_ORIGINS`. |
 
 **Qué agrega `005_provisioning.sql`:**
@@ -256,12 +258,15 @@ Prometheus y Grafana en la PC del operador, con `docker compose`.
 
 | Archivo | Para qué sirve |
 | --- | --- |
-| `docker-compose.yml` | `prom/prometheus:v3.15.1` en `127.0.0.1:9090` (retención de 7 días) y `grafana/grafana:13.2.5` en `127.0.0.1:3001`, con acceso anónimo de solo lectura. Los datos quedan en volúmenes de Docker. |
-| `.env.example` | `GRAFANA_ADMIN_PASSWORD`. El `.env` real no se versiona. |
+| `docker-compose.yml` | `prom/prometheus:v3.15.1` en `127.0.0.1:9090` (retención de 7 días) y `grafana/grafana:13.2.5` en `127.0.0.1:3001`, con acceso anónimo de solo lectura. Grafana llega a la API de la plataforma por `host.docker.internal`. Los datos quedan en volúmenes de Docker. |
+| `.env.example` | `GRAFANA_ADMIN_PASSWORD` y `PLATFORM_ALERTS_TOKEN`, que debe ser el mismo de la plataforma. El `.env` real no se versiona. |
 | `prometheus/prometheus.yml` | Job `tenants` con `file_sd_configs` sobre `targets/*.json`, releídos cada 30 s. |
 | `prometheus/targets/` | Un archivo por tenant, escrito por la plataforma (`provisioning/targets.js`). Cada EC2 tiene 4 targets (node_exporter, process-exporter, otelcol y netdata) con las etiquetas `tenant`, `environment`, `role`, `exporter`, `instance` y `public_ip`. Netdata usa `__metrics_path__=/api/v1/allmetrics` y `format=prometheus`. |
 | `grafana/provisioning/` | Fuente de datos Prometheus (uid `prometheus`) y el proveedor que carga los dashboards de la carpeta `grafana/dashboards/`. |
 | `grafana/dashboards/tenants.json` | Dashboard **Tenants de asistencia** (uid `asistencia-tenants`). Lo describe la tabla de abajo. |
+| `grafana/provisioning/alerting/rules.yml` | 7 reglas de alerta que Grafana evalúa cada minuto (ver la tabla de abajo). |
+| `grafana/provisioning/alerting/contact-points.yml` | Contact point **plataforma**: webhook a `PLATFORM_ALERTS_URL` con `Authorization: Bearer PLATFORM_ALERTS_TOKEN`. |
+| `grafana/provisioning/alerting/policies.yml` | Todas las alertas van a la plataforma, agrupadas por regla, tenant y rol. Las que siguen activas se reenvían cada 15 min: así una entrega perdida, o la plataforma apagada un rato, se corrige sola, y la plataforma no las duplica. |
 
 **Paneles del dashboard** (variables **Entorno** y **Tenant**, de selección múltiple):
 
@@ -275,3 +280,19 @@ Prometheus y Grafana en la PC del operador, con `docker compose`.
 
 La plataforma enlaza al dashboard ya filtrado desde el detalle de cada institución
 (**Ver en Grafana**).
+
+**Reglas de alerta** (`grafana/provisioning/alerting/rules.yml`):
+
+| Regla | Condición | Durante | Severidad |
+| --- | --- | --- | --- |
+| Agente caído | Un agente no responde a Prometheus (`up == 0`) | 2 min | critical |
+| App sin responder | Falla el chequeo HTTP del backend (`/api/health`, incluye PostgreSQL) o del frontend | 2 min | critical |
+| Aumento de errores 5xx | Más del 5 % de las respuestas de la API son 5xx | 5 min | warning |
+| Latencia alta de la API | p95 mayor a 1 s | 10 min | warning |
+| CPU alta | Más del 90 % | 10 min | warning |
+| Memoria alta | Más del 90 % | 10 min | warning |
+| Disco casi lleno | Disco raíz por encima del 85 % | 10 min | critical |
+
+Sin datos no hay alerta (`noDataState: OK`): un tenant suspendido o eliminado no tiene
+targets y no genera falsas alarmas. Cada alerta lleva las etiquetas `tenant`,
+`environment`, `role` e `instance` de la serie que la disparó, más un resumen legible.

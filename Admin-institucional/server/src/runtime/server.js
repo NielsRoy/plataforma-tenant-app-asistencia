@@ -5,6 +5,7 @@ const { ProvisioningWorker } = require('../provisioning/worker');
 const { OperationError } = require('../provisioning/errors');
 const { QueueError } = require('../provisioning/queue');
 const { ApiError, tenantsRouter } = require('./tenants');
+const { alertsRouter, alertsWebhook } = require('./alerts');
 const { InvitationError, allowedTenantOrigin, deliverInvitation, issueTenantInvitation, tenantIsActivated } = require('./invitations');
 const {
   bootstrapAdmin, configuredAdmin, closeSession, limitLogins, newToken,
@@ -282,6 +283,8 @@ function createApp(pool, platformOnly, config) {
     }
     next();
   });
+  // Webhook de alertas de Grafana: token propio y cuerpo de hasta 1 MB (va antes del parser global)
+  app.post('/api/platform/alerts/webhook', ...alertsWebhook(pool));
   app.use(express.json({ limit: '16kb' }));
 
   const healthPaths = platformOnly ? ['/api/health', '/api/platform/health'] : '/api/platform/health';
@@ -373,6 +376,7 @@ function createApp(pool, platformOnly, config) {
 
   // Ciclo de vida de los tenants: crear, listar, suspender, reanudar, eliminar, operaciones
   platform.use(tenantsRouter({ pool, config, registerTenant, tenantConfig }));
+  platform.use(alertsRouter(pool));
 
   app.use('/api/platform', platform);
   app.use((_request, _response, next) => next(new HttpError(404, 'Ruta no encontrada.')));

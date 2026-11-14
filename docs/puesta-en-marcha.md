@@ -121,7 +121,9 @@ docker compose ps
 cd ..
 ```
 
-En `monitoring/.env`, define `GRAFANA_ADMIN_PASSWORD` antes del `up`.
+Antes del `up`, completa `monitoring/.env`:
+- `GRAFANA_ADMIN_PASSWORD`: la contraseña del usuario `admin` de Grafana.
+- `PLATFORM_ALERTS_TOKEN`: el token con el que Grafana envía las alertas a la plataforma. Genéralo con `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"` y **usa el mismo valor** en `Admin-institucional/server/.env` (paso 9).
 
 ✅ **Esperado:**
 - `docker compose ps` muestra `prometheus` y `grafana` en estado `running`.
@@ -152,6 +154,7 @@ En `.env` completa:
 - `PLATFORM_DATABASE_URL`, por ejemplo `postgresql://asistencia_platform:<contraseña>@127.0.0.1:5433/asistencia_platform`.
 - `PLATFORM_ADMIN_EMAIL` y `PLATFORM_ADMIN_PASSWORD` (de 12 a 256 caracteres): son tus credenciales de operador.
 - `PLATFORM_SECRETS_KEY`, con la clave que imprimió el último comando. **Guárdala**: sin ella, la plataforma no puede volver a desplegar los tenants que creó.
+- `PLATFORM_ALERTS_TOKEN`, con el mismo valor que pusiste en `monitoring/.env` (paso 8). Sin él, la plataforma rechaza las alertas de Grafana.
 
 Levanta la API y el panel en dos terminales:
 
@@ -190,6 +193,18 @@ pasos en orden:
 Desde el mismo detalle puedes **Suspender**, **Reanudar**, **Volver a desplegar** y
 **Eliminar**. Eliminar muestra primero la vista previa de los recursos y pide escribir
 el identificador.
+
+**Probar una alerta.** Detén la API del tenant desde su EC2 de backend (la IP pública
+está en la tabla de infraestructura del detalle):
+
+```powershell
+ssh -i "$HOME\.ssh\asistencia\asistencia_ed25519" ubuntu@<ip-backend> "sudo systemctl stop asistencia-api"
+```
+
+✅ **Esperado:** en 3 a 4 minutos aparece **App sin responder** (crítica) en **Monitoreo**,
+que es la vista de la plataforma. Después vuelve a arrancarla con
+`"sudo systemctl start asistencia-api"`: en unos minutos la alerta pasa a **Resuelta**.
+El estado también se ve en Grafana, en **Alerting → Alert rules**.
 
 ---
 

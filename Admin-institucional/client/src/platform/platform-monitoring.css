@@ -107,3 +107,11 @@
 @media (max-width: 330px) {
   .pm-metrics, .pm-filters { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Monitoreo real: enlaces a Grafana y Prometheus y severidad crítica */
+.pm-links { display: flex; flex-wrap: wrap; gap: 7px; }
+.pm-links a { display: inline-flex; align-items: center; gap: 5px; padding: 7px 10px; font-size: 12px; }
+.pm-status-critical { background: #fde6e8; color: #9d1c2b; }
+.pm-event-title { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.pm-panel .pm-filters { margin-bottom: 10px; }
+.pm-service-list a { color: var(--pm-purple, #6337d1); font-weight: 650; }

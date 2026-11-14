@@ -1,0 +1,12 @@
+# Todas las alertas van a la plataforma, agrupadas por regla, tenant y rol.
+# repeat_interval corto: Grafana reenvía cada 15 min las alertas que siguen activas.
+# La plataforma no las duplica (actualiza la misma fila por fingerprint e inicio), y
+# así una entrega perdida o la plataforma apagada un rato se corrigen solas.
+apiVersion: 1
+policies:
+  - orgId: 1
+    receiver: plataforma
+    group_by: ["alertname", "tenant", "role"]
+    group_wait: 30s
+    group_interval: 1m
+    repeat_interval: 15m
