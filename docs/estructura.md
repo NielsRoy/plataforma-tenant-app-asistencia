@@ -24,6 +24,14 @@ control-asistencia-academica/
 └── .gitignore                Excluye estado de Terraform, *.tfvars, claves, artefactos
 ```
 
+## Cambios en `admin-docente-alumno/` para la infraestructura
+
+| Archivo | Para qué sirve |
+| --- | --- |
+| `server/src/telemetry.ts` | Métricas OpenTelemetry del backend: latencia y código de respuesta HTTP (`http.server.request.duration`) y consultas a PostgreSQL. Se activa con `OTEL_ENABLED=true` y envía por OTLP al collector de la misma EC2 (`localhost:4318`). Con la variable desactivada, que es lo normal en desarrollo local, no hace nada. |
+| `server/src/main.ts` | Importa `./telemetry` como primer módulo, para que la instrumentación intercepte `http`, `express` y `pg` antes de que se carguen. |
+| `server/.env.example` | Documenta `OTEL_ENABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` y `APP_VERSION`. |
+
 ## `docs/`
 Documentación del proyecto. Incluye los entregables de diagrama de arquitectura, flujo
 de creación y, más adelante, el catálogo de planes y las instrucciones de operación.

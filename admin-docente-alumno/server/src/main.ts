@@ -1,3 +1,5 @@
+// Debe ser el primer import: instrumenta http, express y pg antes de que se carguen.
+import './telemetry';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
