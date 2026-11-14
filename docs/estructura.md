@@ -38,9 +38,11 @@ control-asistencia-academica/
 | Archivo | Para qué sirve |
 | --- | --- |
 | `server/src/migrations/005_provisioning.sql` | Modelo de datos del aprovisionamiento. Se aplica solo al iniciar la API o con `npm run db:migrate`. Ver la tabla de abajo. |
-| `server/src/runtime/server.js` | Al registrar un tenant copia el `plan_id` de la solicitud. Muestra errores claros si un plan usa un tipo o un disco fuera del Free Tier. |
-| `server/.env.example` | Agrega `PLATFORM_SECRETS_KEY`, la clave AES-256 con la que se cifrarán los secretos de los tenants. |
+| `server/src/runtime/server.js` | Inicia el worker de aprovisionamiento junto con la API y lo detiene al cerrar. Al registrar un tenant copia el `plan_id` de la solicitud. Muestra errores claros si un plan usa un tipo o un disco fuera del Free Tier. |
+| `server/.env.example` | Agrega `PLATFORM_SECRETS_KEY` (clave AES-256 de los secretos de los tenants) y las opciones del worker: `PLATFORM_WORKER`, `PLATFORM_OPERATOR_CIDRS`, `AWS_PROFILE` y `PLATFORM_REPO_ROOT`. |
 | `client/src/platform/CreatePlanDialog.tsx` | El tipo de AWS pasa a ser una lista con los 4 tipos permitidos, y el disco admite de 8 a 30 GB. |
+| `server/src/provisioning/` | Worker y motor de aprovisionamiento. Ver la tabla siguiente. |
+| `server/package.json` | Script `npm run op` (CLI de la cola) y `npm run check` con los archivos nuevos. |
 
 **Qué agrega `005_provisioning.sql`:**
 
@@ -59,6 +61,36 @@ control-asistencia-academica/
 | Básico | t3.micro (1 GiB) | t3.micro (1 GiB) | t3.micro (1 GiB) | 24 GB |
 | Estándar | t3.micro (1 GiB) | t3.small (2 GiB) | t3.small (2 GiB) | 26 GB |
 | Avanzado | t3.small (2 GiB) | c7i-flex.large (4 GiB) | m7i-flex.large (8 GiB) | 28 GB |
+
+**`server/src/provisioning/`: worker y motores**
+
+El worker corre dentro de la API (`npm start`). Toma las operaciones de la cola y ejecuta
+en el toolbox Docker los mismos comandos de [tenant-manual.md](tenant-manual.md).
+
+| Archivo | Para qué sirve |
+| --- | --- |
+| `config.js` | Rutas (repositorio, `.workspaces/`, targets de Prometheus), imagen del toolbox, `~/.aws`, `~/.ssh/asistencia` y opciones del worker. |
+| `worker.js` | Toma una operación a la vez con `FOR UPDATE SKIP LOCKED`, marca un latido cada 15 s y, al iniciar, marca como fallidas las operaciones que quedaron a medias. Al cerrar la API espera a que termine la operación en curso. |
+| `queue.js` | `enqueueOperation()`: valida qué operación admite cada estado del tenant (por ejemplo, `resume` solo si está `suspended`) y rechaza una segunda operación activa. |
+| `pipeline.js` | Los pasos de cada operación (`create`, `suspend`, `resume`, `redeploy`, `delete`), el cambio de estado del tenant y la protección del plan: aborta si crear, suspender o reanudar quiere destruir o reemplazar una EC2, un disco o la IP elástica. |
+| `engines/` | Interfaz común de motores. `terraform.js` usa `infra/terraform/tenant` con un `TF_DATA_DIR` propio por tenant (`.workspaces/<slug>/.terraform`). `pulumi.js`, `cloudformation.js` y `opentofu.js` son puntos de extensión: el worker responde "no implementado". |
+| `toolbox.js` | Ejecuta `docker run` del toolbox con los mismos montajes que `scripts/iac.ps1`. Los secretos nunca viajan como variables de entorno. |
+| `crypto.js` | Genera los secretos del tenant y los cifra con AES-256-GCM (`PLATFORM_SECRETS_KEY`). Para Ansible se escriben en un archivo temporal que se borra al terminar el paso. |
+| `redact.js` | Sanea cada línea del log: valores de los secretos del tenant, claves de AWS, `password=`, `Authorization: Bearer` y colores ANSI. |
+| `oplog.js` | Guarda los pasos y el log por lotes en `platform_operations` y `platform_operation_logs`. |
+| `errors.js` | Traduce fallos conocidos a mensajes para el operador: Docker apagado, credenciales de AWS, límite de vCPU, sin AMIs, estado bloqueado, SSH… |
+| `targets.js` | Escribe `monitoring/prometheus/targets/<slug>.json` (file_sd) con los 4 agentes de cada EC2 y las etiquetas `tenant`, `environment`, `role` y `exporter`. Lo retira al suspender o eliminar. |
+| `cli.js` | `npm run op -- enqueue <slug> <operación>`, `list` y `logs <id> --follow`, para usar la cola antes de que exista la interfaz. |
+
+| Operación | Pasos |
+| --- | --- |
+| `create` | preparar → escanear → init → plan → apply → outputs → ansible → salud → invitacion → monitoreo |
+| `suspend` | preparar → init → plan → apply → monitoreo |
+| `resume` | preparar → init → plan → apply → refrescar → outputs → salud → monitoreo |
+| `redeploy` | preparar → init → outputs → ansible → salud → monitoreo |
+| `delete` | preparar → init → plan (vista previa) → apply (destroy) → monitoreo → limpieza |
+
+En "preparar" se registran las versiones usadas (RF-13): las del toolbox, los providers del lock file, el commit del repositorio y los tipos de instancia. En "outputs" se agregan las AMIs.
 
 ## `docs/`
 Documentación del proyecto. Incluye los entregables de diagrama de arquitectura, flujo

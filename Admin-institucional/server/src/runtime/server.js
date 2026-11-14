@@ -1,5 +1,7 @@
 const express = require('express');
 const { createPool, migrate, transaction } = require('./db');
+const { provisioningConfig } = require('../provisioning/config');
+const { ProvisioningWorker } = require('../provisioning/worker');
 const { InvitationError, allowedTenantOrigin, deliverInvitation, issueTenantInvitation, tenantIsActivated } = require('./invitations');
 const {
   bootstrapAdmin, configuredAdmin, closeSession, limitLogins, newToken,
@@ -388,7 +390,17 @@ async function openPlatform(connectionString, platformOnly) {
   try {
     await migrate(pool);
     await bootstrapAdmin(pool, admin);
-    return { handle: createApp(pool, platformOnly), close: () => pool.end() };
+    // Worker que ejecuta las operaciones de aprovisionamiento (PLATFORM_WORKER=off lo desactiva)
+    const config = provisioningConfig();
+    const worker = config.workerEnabled ? new ProvisioningWorker(pool, config) : null;
+    worker?.start();
+    return {
+      handle: createApp(pool, platformOnly),
+      close: async () => {
+        await worker?.stop();
+        await pool.end();
+      },
+    };
   } catch (error) {
     await pool.end();
     throw error;
