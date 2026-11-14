@@ -108,6 +108,9 @@ aws ec2 describe-images --owners self --filters "Name=tag:Project,Values=asisten
 
 Detalle y solución de problemas: [comandos-manuales.md §4](comandos-manuales.md#4-amis-con-packer-una-vez-por-versión-de-las-imágenes).
 
+> **Opcional:** con los pasos 1 a 7 ya puedes crear un tenant completo a mano, sin la
+> plataforma, siguiendo [tenant-manual.md](tenant-manual.md).
+
 ## Paso 8. Levantar Prometheus y Grafana (*pendiente*)
 
 ## Paso 9. Levantar la plataforma (*pendiente*)
