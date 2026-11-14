@@ -46,3 +46,6 @@ id_ed25519*
 
 # Targets de Prometheus generados por la plataforma
 monitoring/prometheus/targets/*.json
+
+# Configuración del backend generada por el bootstrap (específica de cada cuenta AWS)
+infra/terraform/tenant/backend.hcl

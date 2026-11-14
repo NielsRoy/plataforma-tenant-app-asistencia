@@ -1,0 +1,4 @@
+# Copia este archivo como terraform.tfvars solo si necesitas cambiar los valores por defecto.
+region              = "us-east-1"
+project             = "asistencia"
+ssh_public_key_path = "/root/.ssh/asistencia_ed25519.pub"

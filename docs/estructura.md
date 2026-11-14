@@ -12,8 +12,8 @@ control-asistencia-academica/
 ├── scripts/                  Scripts de ayuda para el operador
 ├── infra/                    Todo el código de infraestructura
 │   ├── toolbox/              Imagen Docker con las herramientas IaC
-│   ├── terraform/            (pendiente) Código Terraform
-│   │   ├── bootstrap/        (pendiente) Recursos que se crean una sola vez
+│   ├── terraform/            Código Terraform
+│   │   ├── bootstrap/        Recursos que se crean una sola vez
 │   │   ├── modules/tenant/   (pendiente) Módulo reutilizable de un tenant
 │   │   └── tenant/           (pendiente) Stack raíz que se aplica por cada tenant
 │   ├── packer/               (pendiente) Plantilla de las AMIs
@@ -53,8 +53,22 @@ ansible-core, tflint, trivy y checkov. Existe por dos razones:
 | `entrypoint.sh` | Copia las claves SSH con permisos `600` antes de ejecutar el comando. |
 | `toolbox-versions.sh` | Imprime las versiones en JSON. La plataforma lo guarda en cada despliegue (RF-13). |
 
-## `infra/terraform/` (pendiente)
-- `bootstrap/`: se aplica **una sola vez** por cuenta AWS. Crea el bucket S3 donde se guarda el estado de los tenants y registra el key pair SSH. Su propio estado queda en local.
+## `infra/terraform/`
+
+### `bootstrap/`
+Se aplica **una sola vez** por cuenta AWS. Su propio estado queda en local
+(`terraform.tfstate`, ignorado por git), porque es quien crea el bucket remoto.
+
+| Archivo | Para qué sirve |
+| --- | --- |
+| `versions.tf` | Versión mínima de Terraform, providers (`aws ~> 6.0`, `local`) y etiquetas por defecto (`Project`, `Component`, `ManagedBy`). |
+| `variables.tf` | Región, prefijo del proyecto, ruta de la clave pública SSH y días que se retienen las versiones antiguas del estado. |
+| `main.tf` | Bucket S3 del estado (versionado, cifrado SSE-S3, bloqueo de acceso público, política solo-HTTPS y ciclo de vida), key pair `asistencia-operator`, comprobación de que existe la VPC por defecto y generación de `../tenant/backend.hcl`. |
+| `outputs.tf` | Cuenta, región, bucket, key pair, VPC por defecto y ruta de `backend.hcl`. |
+| `terraform.tfvars.example` | Ejemplo para cambiar los valores por defecto. El `terraform.tfvars` real no se versiona. |
+| `.terraform.lock.hcl` | Lo genera `terraform init`. Fija las versiones exactas de los providers y **sí se versiona**. |
+
+### Pendiente
 - `modules/tenant/`: módulo con los Security Groups, las 3 EC2 (frontend, backend, base de datos) y la IP elástica.
 - `tenant/`: stack raíz que usa el módulo. Se aplica una vez por tenant con un estado separado en S3 (`tenants/<slug>/terraform.tfstate`).
 
