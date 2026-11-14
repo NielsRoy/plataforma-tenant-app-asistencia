@@ -45,6 +45,7 @@ solo facilitan el uso de las herramientas.
 | --- | --- |
 | `iac.ps1` | Ejecuta cualquier comando dentro del toolbox Docker desde PowerShell. Monta el repositorio, `~/.aws` (solo lectura) y las claves SSH del proyecto. |
 | `iac.sh` | Lo mismo para Linux, WSL o Git Bash. |
+| `scan-terraform.sh` | Se ejecuta dentro del toolbox. Corre tflint, trivy y checkov sobre el stack del tenant, muestra cada comando con su salida y termina con un resumen. No bloquea. Ver [escaneres.md](escaneres.md). |
 
 Ejemplo: `./scripts/iac.ps1 terraform -chdir=infra/terraform/bootstrap plan`.
 
@@ -62,6 +63,9 @@ ansible-core, tflint, trivy y checkov. Existe por dos razones:
 | `toolbox-versions.sh` | Imprime las versiones en JSON. La plataforma lo guarda en cada despliegue (RF-13). |
 
 ## `infra/terraform/`
+
+El archivo `.tflint.hcl` de esta carpeta configura tflint para todos los stacks: preset
+`recommended` y ruleset de AWS 0.50.0.
 
 ### `bootstrap/`
 Se aplica **una sola vez** por cuenta AWS. Su propio estado queda en local

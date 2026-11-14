@@ -36,9 +36,13 @@ un tenant de otro.
 - Su `JWT_SECRET` y su `PLATFORM_BOOTSTRAP_KEY` también son propios.
 - Sus SG solo aceptan tráfico de los SG del mismo tenant. El backend del tenant B no puede abrir conexión con la base del tenant A. Prueba: `nc -zv <ip-bd-A> 5432` desde el backend de B termina en timeout.
 
+**Salida restringida.** Las EC2 no tienen salida a internet: solo frontend → backend `:3000`
+y backend → database `:5432` del mismo tenant. Las imágenes ya traen todo instalado.
+
 **Concesiones por el Free Tier.** Una red privada con NAT Gateway cuesta dinero. Por eso
-los scanners avisarán de "instancia con IP pública" y de reglas similares. Sus resultados
-se muestran en el log de cada operación, pero esas advertencias no bloquean el despliegue.
+las EC2 tienen IP pública, y los scanners lo marcarían. Esas reglas quedan como
+excepciones justificadas en el código ([escaneres.md](escaneres.md)). Los resultados se
+muestran en el log de cada operación y no bloquean el despliegue.
 
 ## 3. Flujo de creación de un tenant
 

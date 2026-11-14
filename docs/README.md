@@ -7,3 +7,4 @@
 | [estructura.md](estructura.md) | Para qué sirve cada carpeta nueva del repositorio y qué contiene. |
 | [puesta-en-marcha.md](puesta-en-marcha.md) | **Empieza aquí.** Pasos en orden para levantar la plataforma en una PC nueva. |
 | [comandos-manuales.md](comandos-manuales.md) | Comandos que el operador ejecuta a mano (lo que la plataforma no automatiza), en orden. |
+| [escaneres.md](escaneres.md) | Escáneres tflint, trivy y checkov: qué revisan, correcciones aplicadas y excepciones justificadas. |

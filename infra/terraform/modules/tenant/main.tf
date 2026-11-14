@@ -94,6 +94,7 @@ data "aws_ami" "role" {
 # ---------------------------------------------------------------------------
 
 resource "aws_security_group" "role" {
+  #checkov:skip=CKV2_AWS_5:Falso positivo; cada SG se asigna a su EC2 en aws_instance.role (for_each)
   for_each = local.roles
 
   name        = "${local.name_prefix}-${each.key}"
@@ -108,6 +109,9 @@ resource "aws_security_group" "role" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "frontend_http" {
+  # Excepción: es la puerta pública de la app. HTTPS requiere un dominio y un
+  # certificado, que quedan fuera del alcance (Free Tier, sin dominio).
+  #checkov:skip=CKV_AWS_260:El frontend es el sitio web publico del tenant
   security_group_id = aws_security_group.role["frontend"].id
   description       = "HTTP publico de la app"
   ip_protocol       = "tcp"
@@ -149,16 +153,31 @@ resource "aws_vpc_security_group_ingress_rule" "operator" {
   tags              = local.tags
 }
 
-# Salida a internet: paquetes del sistema y verificaciones. Sin NAT Gateway
-# (no es Free Tier), por eso las EC2 tienen IP pública.
-resource "aws_vpc_security_group_egress_rule" "all" {
-  for_each = local.roles
+# Salida: SOLO la cadena frontend -> backend -> database del mismo tenant.
+# Corrección de trivy AWS-0104 (salida sin restricción). Las imágenes ya traen todo
+# instalado, así que las EC2 no necesitan internet. Las respuestas a SSH, a
+# Prometheus y a los visitantes salen igual, porque los Security Groups tienen
+# estado. La hora se sincroniza con Amazon Time Sync (169.254.169.123), que es
+# link-local y no pasa por los Security Groups. Sin reglas de salida, Terraform
+# quita la regla "allow all" que AWS crea por defecto; la database no tiene ninguna.
+resource "aws_vpc_security_group_egress_rule" "frontend_to_backend" {
+  security_group_id            = aws_security_group.role["frontend"].id
+  description                  = "Proxy de nginx hacia la API del tenant"
+  ip_protocol                  = "tcp"
+  from_port                    = 3000
+  to_port                      = 3000
+  referenced_security_group_id = aws_security_group.role["backend"].id
+  tags                         = local.tags
+}
 
-  security_group_id = aws_security_group.role[each.key].id
-  description       = "Salida a internet"
-  ip_protocol       = "-1"
-  cidr_ipv4         = "0.0.0.0/0"
-  tags              = local.tags
+resource "aws_vpc_security_group_egress_rule" "backend_to_database" {
+  security_group_id            = aws_security_group.role["backend"].id
+  description                  = "API hacia PostgreSQL del tenant"
+  ip_protocol                  = "tcp"
+  from_port                    = 5432
+  to_port                      = 5432
+  referenced_security_group_id = aws_security_group.role["database"].id
+  tags                         = local.tags
 }
 
 # ---------------------------------------------------------------------------
@@ -166,6 +185,11 @@ resource "aws_vpc_security_group_egress_rule" "all" {
 # ---------------------------------------------------------------------------
 
 resource "aws_instance" "role" {
+  # Excepciones documentadas (docs/escaneres.md):
+  #checkov:skip=CKV_AWS_88:Sin NAT Gateway (no es Free Tier) la IP publica es la via de SSH y del scraping; el SG solo admite la IP del operador
+  #checkov:skip=CKV_AWS_126:El monitoreo detallado de CloudWatch tiene costo; las metricas las recoge Prometheus
+  #checkov:skip=CKV_AWS_135:Los t3 son EBS-optimized por defecto y sin costo; el flag no cambia nada
+  #checkov:skip=CKV2_AWS_41:Las EC2 no llaman a APIs de AWS; sin rol IAM es el minimo privilegio
   for_each = local.roles
 
   ami                         = data.aws_ami.role[each.key].id

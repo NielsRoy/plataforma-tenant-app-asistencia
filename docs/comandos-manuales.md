@@ -222,9 +222,10 @@ Copy-Item infra/terraform/tenant/demo.tfvars.example infra/terraform/tenant/demo
 En `demo.tfvars`, cambia `operator_cidrs` por tu IP con `/32`, por ejemplo
 `["190.129.10.20/32"]`. Solo esa IP podrá entrar por SSH y leer las métricas.
 
-### 5.2 Init, plan y apply
+### 5.2 Escaneo, init, plan y apply
 
 ```powershell
+./scripts/iac.ps1 bash scripts/scan-terraform.sh
 ./scripts/iac.ps1 terraform -chdir=infra/terraform/tenant init -reconfigure "-backend-config=backend.hcl" "-backend-config=key=tenants/demo/terraform.tfstate"
 ./scripts/iac.ps1 terraform -chdir=infra/terraform/tenant plan "-var-file=demo.tfvars" -out=tfplan
 ./scripts/iac.ps1 terraform -chdir=infra/terraform/tenant apply tfplan
@@ -233,8 +234,9 @@ En `demo.tfvars`, cambia `operator_cidrs` por tu IP con `/32`, por ejemplo
 
 | Comando | Qué hace |
 | --- | --- |
+| `scan-terraform.sh` | tflint, trivy y checkov, igual que en el log de la plataforma. Debe terminar con 4 `OK`. Detalle en [escaneres.md](escaneres.md). |
 | `init -reconfigure` | Conecta el stack al estado `tenants/demo/terraform.tfstate` del bucket. `-reconfigure` es necesario al cambiar de tenant, porque la carpeta es la misma para todos. Las comillas evitan que PowerShell 5.1 parta los argumentos con punto. |
-| `plan` | Debe proponer **32 recursos**: 3 EC2, 3 Security Groups, 21 reglas, 3 `aws_ec2_instance_state`, la IP elástica y su asociación. |
+| `plan` | Debe proponer **31 recursos**: 3 EC2, 3 Security Groups, 20 reglas (3 de entrada entre roles y al puerto 80, 15 del operador y 2 de salida), 3 `aws_ec2_instance_state`, la IP elástica y su asociación. |
 | `apply` | Crea los recursos en 1 a 2 minutos. |
 | `output` | Muestra el contrato de outputs: `app_url`, IPs, IDs de las EC2 y AMIs. |
 
