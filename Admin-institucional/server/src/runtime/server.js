@@ -2,6 +2,9 @@ const express = require('express');
 const { createPool, migrate, transaction } = require('./db');
 const { provisioningConfig } = require('../provisioning/config');
 const { ProvisioningWorker } = require('../provisioning/worker');
+const { OperationError } = require('../provisioning/errors');
+const { QueueError } = require('../provisioning/queue');
+const { ApiError, tenantsRouter } = require('./tenants');
 const { InvitationError, allowedTenantOrigin, deliverInvitation, issueTenantInvitation, tenantIsActivated } = require('./invitations');
 const {
   bootstrapAdmin, configuredAdmin, closeSession, limitLogins, newToken,
@@ -19,7 +22,8 @@ const requestSelect = `
   SELECT r.id, r.institution_name, r.admin_name, r.admin_email, r.plan_id,
          r.status, r.created_at, r.updated_at,
          t.id AS tenant_id, t.slug, t.region, t.environment, t.engine,
-         t.created_at AS tenant_created_at, t.app_url, t.invitation_status, t.invitation_updated_at
+         t.created_at AS tenant_created_at, t.app_url, t.invitation_status, t.invitation_updated_at,
+         t.status AS tenant_status, t.outputs->>'app_url' AS provisioned_url
   FROM platform_requests r
   LEFT JOIN platform_tenants t ON t.request_id = r.id
 `;
@@ -58,7 +62,7 @@ function serializeRequest(row, includeContact = true) {
     request.adminEmail = row.admin_email;
   }
   if (row.tenant_id) {
-    const invitation = { invitationStatus: row.invitation_status };
+    const invitation = { invitationStatus: row.invitation_status, status: row.tenant_status };
     if (row.app_url) invitation.appUrl = row.app_url;
     if (row.invitation_updated_at) invitation.invitationUpdatedAt = row.invitation_updated_at;
     request.tenant = includeContact ? {
@@ -156,7 +160,8 @@ async function createPlan(pool, plan) {
 }
 
 function tenantConfig(body) {
-  const slug = readText(body?.slug, 'El slug', 3, 63).toLowerCase();
+  // 42: límite de los nombres de recursos en AWS (infra/terraform/modules/tenant)
+  const slug = readText(body?.slug, 'El slug', 3, 42).toLowerCase();
   const region = readText(body?.region, 'La región', 2, 40).toLowerCase();
   const environment = body?.environment;
   const engine = body?.engine;
@@ -252,7 +257,9 @@ async function inviteTenant(pool, id, body) {
 }
 
 async function refreshTenantActivation(pool, row) {
-  if (!row.app_url || row.invitation_status === 'activated' || !(await tenantIsActivated(row.app_url))) return row;
+  // Un tenant creado por la plataforma tiene la URL de sus outputs: es de confianza
+  const trusted = Boolean(row.provisioned_url) && row.provisioned_url === row.app_url;
+  if (!row.app_url || row.invitation_status === 'activated' || !(await tenantIsActivated(row.app_url, { trusted }))) return row;
   const { rows: [activated] } = await pool.query(`
     UPDATE platform_tenants SET invitation_status = 'activated', invitation_updated_at = now()
     WHERE id = $1 AND invitation_status <> 'activated'
@@ -261,7 +268,7 @@ async function refreshTenantActivation(pool, row) {
   return { ...row, invitation_status: 'activated', ...activated };
 }
 
-function createApp(pool, platformOnly) {
+function createApp(pool, platformOnly, config) {
   const app = express();
   app.disable('x-powered-by');
   app.use((request, response, next) => {
@@ -364,11 +371,17 @@ function createApp(pool, platformOnly) {
     response.json(await inviteTenant(pool, request.params.id, request.body));
   });
 
+  // Ciclo de vida de los tenants: crear, listar, suspender, reanudar, eliminar, operaciones
+  platform.use(tenantsRouter({ pool, config, registerTenant, tenantConfig }));
+
   app.use('/api/platform', platform);
   app.use((_request, _response, next) => next(new HttpError(404, 'Ruta no encontrada.')));
   app.use((error, _request, response, _next) => {
-    if (error instanceof HttpError || error instanceof InvitationError) {
+    if (error instanceof HttpError || error instanceof InvitationError || error instanceof ApiError || error instanceof QueueError) {
       return response.status(error.status).json({ message: error.message });
+    }
+    if (error instanceof OperationError) {
+      return response.status(422).json({ message: error.userMessage });
     }
     if (error.type === 'entity.parse.failed') {
       return response.status(400).json({ message: 'El cuerpo de la solicitud contiene JSON inválido.' });
@@ -395,7 +408,7 @@ async function openPlatform(connectionString, platformOnly) {
     const worker = config.workerEnabled ? new ProvisioningWorker(pool, config) : null;
     worker?.start();
     return {
-      handle: createApp(pool, platformOnly),
+      handle: createApp(pool, platformOnly, config),
       close: async () => {
         await worker?.stop();
         await pool.end();

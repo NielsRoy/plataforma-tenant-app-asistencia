@@ -75,9 +75,11 @@ async function issueTenantInvitation(origin, { bootstrapKey, slug, email, name }
   throw new InvitationError(502, 'La instalación no pudo generar la invitación.');
 }
 
-async function tenantIsActivated(value) {
+// trusted: la URL salió de los outputs del motor IaC (tenant creado por la
+// plataforma), así que no hace falta que esté en PLATFORM_TENANT_ORIGINS.
+async function tenantIsActivated(value, { trusted = false } = {}) {
   try {
-    const origin = allowedTenantOrigin(value);
+    const origin = trusted ? new URL(value).origin : allowedTenantOrigin(value);
     const response = await tenantJson(origin, '/api/auth/invitations/status');
     return response.ok && response.data?.activated === true;
   } catch (error) {

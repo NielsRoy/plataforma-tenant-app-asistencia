@@ -38,11 +38,13 @@ control-asistencia-academica/
 | Archivo | Para qué sirve |
 | --- | --- |
 | `server/src/migrations/005_provisioning.sql` | Modelo de datos del aprovisionamiento. Se aplica solo al iniciar la API o con `npm run db:migrate`. Ver la tabla de abajo. |
-| `server/src/runtime/server.js` | Inicia el worker de aprovisionamiento junto con la API y lo detiene al cerrar. Al registrar un tenant copia el `plan_id` de la solicitud. Muestra errores claros si un plan usa un tipo o un disco fuera del Free Tier. |
+| `server/src/runtime/server.js` | Inicia el worker de aprovisionamiento junto con la API y lo detiene al cerrar. Monta la API del ciclo de vida. Al registrar un tenant copia el `plan_id` de la solicitud y limita el slug a 42 caracteres. Muestra errores claros si un plan usa un tipo o un disco fuera del Free Tier. |
 | `server/.env.example` | Agrega `PLATFORM_SECRETS_KEY` (clave AES-256 de los secretos de los tenants) y las opciones del worker: `PLATFORM_WORKER`, `PLATFORM_OPERATOR_CIDRS`, `AWS_PROFILE` y `PLATFORM_REPO_ROOT`. |
 | `client/src/platform/CreatePlanDialog.tsx` | El tipo de AWS pasa a ser una lista con los 4 tipos permitidos, y el disco admite de 8 a 30 GB. |
 | `server/src/provisioning/` | Worker y motor de aprovisionamiento. Ver la tabla siguiente. |
 | `server/package.json` | Script `npm run op` (CLI de la cola) y `npm run check` con los archivos nuevos. |
+| `server/src/runtime/tenants.js` | API del ciclo de vida de los tenants. Ver la tabla siguiente. |
+| `server/src/runtime/invitations.js` | `tenantIsActivated(url, { trusted })`: acepta la URL `http://<IP>` de un tenant creado por la plataforma, que no está en `PLATFORM_TENANT_ORIGINS`. |
 
 **Qué agrega `005_provisioning.sql`:**
 
@@ -61,6 +63,24 @@ control-asistencia-academica/
 | Básico | t3.micro (1 GiB) | t3.micro (1 GiB) | t3.micro (1 GiB) | 24 GB |
 | Estándar | t3.micro (1 GiB) | t3.small (2 GiB) | t3.small (2 GiB) | 26 GB |
 | Avanzado | t3.small (2 GiB) | c7i-flex.large (4 GiB) | m7i-flex.large (8 GiB) | 28 GB |
+
+**API del ciclo de vida** (`server/src/runtime/tenants.js`, bajo `/api/platform`, con sesión de operador):
+
+| Método y ruta | Qué hace | Requisito |
+| --- | --- | --- |
+| `GET /engines` | Motores IaC y cuáles están implementados (solo Terraform). | RF-08 |
+| `GET /tenants?name=&status=&plan=&environment=` | Lista con filtros. Por defecto oculta los eliminados. Cada tenant trae su estado, su plan, la infraestructura (outputs), la última operación y las operaciones que admite. | RF-14 |
+| `POST /tenants` | `{ requestId, slug, region, environment, engine }`: registra la solicitud y encola su creación. Responde `202` con la operación. Rechaza motores no implementados y regiones sin AMIs. | RF-07 |
+| `GET /tenants/:id` | Detalle con las últimas 20 operaciones. Comprueba si el administrador ya activó su cuenta. | RF-14 |
+| `POST /tenants/:id/operations` | `{ kind: create \| suspend \| resume \| redeploy }`. Solo admite lo que permite el estado del tenant, y nunca dos operaciones a la vez. Repetir `create` sobre un tenant `failed` es seguro, porque todos los pasos son idempotentes. | RF-12, RF-16, RF-17 |
+| `GET /tenants/:id/deletion-preview` | Lee el estado real (`terraform state list`) y devuelve los recursos, un resumen, qué datos se pierden y el slug que hay que escribir para confirmar. | RF-18 |
+| `DELETE /tenants/:id` | `{ confirmSlug }`: si coincide con el slug, encola la eliminación. | RF-18 |
+| `POST /tenants/:id/invitation` | Reenvía la invitación del administrador con la clave guardada cifrada. En modo preview devuelve el enlace. | — |
+| `GET /operations/:id` | Estado, pasos con sus tiempos, error legible y versiones usadas. | RF-11, RF-13 |
+| `GET /operations/:id/logs?after=N` | Log saneado por partes. La interfaz lo consulta cada pocos segundos con el último `id` visto. | RF-11 |
+
+Todas las operaciones son asíncronas: la API responde enseguida con la operación en cola y el
+worker la ejecuta. El slug admite de 3 a 42 caracteres, el mismo límite del módulo de Terraform.
 
 **`server/src/provisioning/`: worker y motores**
 
