@@ -263,17 +263,93 @@ Test-NetConnection <public_ips.backend> -Port 3000      # TcpTestSucceeded : Fal
 
 ### 5.4 Suspender, reanudar y eliminar
 
+Suspender y reanudar siempre con **plan primero**. El plan debe cambiar solo los 3
+`aws_ec2_instance_state` y mostrar `0 to add` y `0 to destroy`. Si propone reemplazar
+(`must be replaced`) o destruir alguna EC2, **no lo apliques**: se perderían los datos
+de la base.
+
 ```powershell
-./scripts/iac.ps1 terraform -chdir=infra/terraform/tenant apply "-var-file=demo.tfvars" -var desired_state=stopped
-./scripts/iac.ps1 terraform -chdir=infra/terraform/tenant apply "-var-file=demo.tfvars" -var desired_state=running
+# Suspender
+./scripts/iac.ps1 terraform -chdir=infra/terraform/tenant plan "-var-file=demo.tfvars" -var desired_state=stopped -out=tfplan
+./scripts/iac.ps1 terraform -chdir=infra/terraform/tenant apply tfplan
+
+# Reanudar
+./scripts/iac.ps1 terraform -chdir=infra/terraform/tenant plan "-var-file=demo.tfvars" -var desired_state=running -out=tfplan
+./scripts/iac.ps1 terraform -chdir=infra/terraform/tenant apply tfplan
+./scripts/iac.ps1 terraform -chdir=infra/terraform/tenant apply -refresh-only -auto-approve "-var-file=demo.tfvars" -var desired_state=running
+
+# Eliminar
 ./scripts/iac.ps1 terraform -chdir=infra/terraform/tenant destroy "-var-file=demo.tfvars"
 ```
 
 - **Suspender** detiene las 3 EC2. No cobra horas de cómputo, pero sí los discos y la IP elástica.
-- **Reanudar** las vuelve a arrancar. La IP del frontend no cambia, porque es elástica. Las de backend y database sí cambian; el siguiente `plan` o `apply` las actualiza en los outputs.
+- **Reanudar** las vuelve a arrancar. En 1 o 2 minutos la app responde en la misma URL, con sus datos: la API arranca sola y las IP privadas no cambian.
+- `apply -refresh-only` no cambia nada en AWS. Solo actualiza en los outputs las IP públicas nuevas de backend y database, que son las que usan Ansible y Prometheus. La del frontend no cambia, porque es elástica.
 - **Eliminar** borra todo, incluidos los datos. Escribe `yes` para confirmar.
+
+> **Por qué importa revisar el plan.** Con la EC2 detenida, AWS le quita la IP pública y
+> el provider leía `associate_public_ip_address = false`. Como ese atributo obliga a
+> recrear la instancia, reanudar **reemplazaba backend y database** y se perdían los
+> datos. El módulo ahora lo ignora (`ignore_changes`). La plataforma, además, revisará
+> el plan y abortará una suspensión o reanudación que intente destruir algo.
 
 > **Costos.** Cada tenant usa 3 `t3.micro` y 3 discos de 8 GB (24 GB). El Free Tier
 > incluye 750 horas al mes de t3.micro **en total** (3 EC2 encendidas consumen 3 horas
 > por hora), 30 GB de EBS y 750 horas de IPv4 pública. Con 2 tenants se superan los
 > 30 GB de EBS. **Elimina o suspende el tenant de prueba al terminar.**
+
+## 6. Desplegar la app en un tenant con Ansible (opcional)
+
+Continúa la §5: el `apply` del tenant `demo` debe estar hecho y el tenant, encendido.
+La plataforma hará lo mismo automáticamente después del `terraform apply`.
+
+### 6.1 Secretos (una vez por tenant)
+
+```powershell
+./scripts/iac.ps1 bash scripts/tenant-secrets.sh demo
+```
+
+Crea `.workspaces/demo/secrets.yml` con la contraseña de la BD, `JWT_SECRET` y la clave
+de invitación. El archivo está ignorado por git y los valores no se imprimen.
+
+- **No lo borres** mientras el tenant exista: la base de datos ya usa esa contraseña.
+- Los secretos nunca pasan por Terraform: viajan solo de este archivo a Ansible, y de Ansible a la EC2 por SSH.
+
+### 6.2 Desplegar
+
+```powershell
+./scripts/iac.ps1 bash scripts/deploy-tenant.sh demo
+```
+
+1. Genera `.workspaces/demo/inventory.json` desde `terraform output -json`.
+2. Ejecuta `infra/ansible/playbooks/deploy-tenant.yml`:
+   - **database:** crea el usuario y la base `asistencia`, y limita `pg_hba.conf` al backend.
+   - **backend:** escribe `api.env` con los secretos, arranca la API (que ejecuta las migraciones) y espera `/api/health`.
+   - **frontend:** configura el proxy de nginx hacia el backend y comprueba `/api/health` a través de él.
+
+Tarda de 1 a 2 minutos. Termina con `Tenant demo listo en http://<ip>` y un
+`PLAY RECAP` con `failed=0` en los 3 hosts. Las tareas con secretos no muestran su
+contenido: Ansible indica que la salida se ocultó (`no_log`).
+
+Es **idempotente**: si lo repites, las tareas salen `ok` en vez de `changed`.
+
+### 6.3 Activar el primer administrador
+
+```powershell
+./scripts/iac.ps1 bash scripts/tenant-invite.sh demo admin@demo.edu "Administrador Demo"
+```
+
+Muestra un enlace `http://<ip>/activar#token=...`, válido 24 horas y de un solo uso.
+Ábrelo en el navegador, define la contraseña del administrador e inicia sesión. La
+plataforma hará este paso al terminar la creación del tenant y enviará el enlace al
+contacto de la institución.
+
+### 6.4 Verificar
+
+```powershell
+curl.exe -s http://<frontend_public_ip>/api/health
+curl.exe -s http://<public_ips.backend>:8889/metrics | Select-String "http_server_request_duration" | Select-Object -First 3
+```
+
+- El primero responde `{"status":"ok"}`, pasando por nginx → API → PostgreSQL.
+- El segundo muestra la métrica de latencia que envía la API al collector, después de navegar un poco por la app.

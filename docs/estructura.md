@@ -20,6 +20,7 @@ control-asistencia-academica/
 │   ├── ansible/              Roles y playbooks
 │   └── cloud-init/           Plantilla de primer arranque
 ├── monitoring/               (pendiente) Prometheus y Grafana con docker compose
+├── .workspaces/              Archivos de trabajo por tenant (secretos, inventario). No se versiona
 ├── .gitattributes            Fuerza finales de línea LF en scripts y plantillas
 └── .gitignore                Excluye estado de Terraform, *.tfvars, claves, artefactos
 ```
@@ -46,6 +47,10 @@ solo facilitan el uso de las herramientas.
 | `iac.ps1` | Ejecuta cualquier comando dentro del toolbox Docker desde PowerShell. Monta el repositorio, `~/.aws` (solo lectura) y las claves SSH del proyecto. |
 | `iac.sh` | Lo mismo para Linux, WSL o Git Bash. |
 | `scan-terraform.sh` | Se ejecuta dentro del toolbox. Corre tflint, trivy y checkov sobre el stack del tenant, muestra cada comando con su salida y termina con un resumen. No bloquea. Ver [escaneres.md](escaneres.md). |
+| `tenant-secrets.sh` | Dentro del toolbox. Genera **una sola vez** los secretos de un tenant (contraseña de la BD, `JWT_SECRET` y clave de invitación) en `.workspaces/<slug>/secrets.yml`, con permisos `600`. No los imprime. La plataforma, en cambio, los guardará cifrados en su BD. |
+| `tenant-inventory.sh` | Dentro del toolbox. Crea `.workspaces/<slug>/inventory.json` (inventario de Ansible) a partir de `terraform output -json`. Se niega si el estado es de otro tenant o si el tenant está suspendido. |
+| `deploy-tenant.sh` | Dentro del toolbox. Genera el inventario y ejecuta `deploy-tenant.yml` con los secretos. |
+| `tenant-invite.sh` | Dentro del toolbox. Pide a la app del tenant la invitación del primer administrador y muestra el enlace `/activar#token=...`. Es lo mismo que hará la plataforma. |
 
 Ejemplo: `./scripts/iac.ps1 terraform -chdir=infra/terraform/bootstrap plan`.
 
@@ -87,7 +92,7 @@ de la plataforma: recibe variables y devuelve el contrato de outputs.
 | Archivo | Para qué sirve |
 | --- | --- |
 | `versions.tf` | Versión mínima de Terraform y provider `aws ~> 6.0`. |
-| `variables.tf` | `tenant_slug` (validado: minúsculas, números y guiones, hasta 42 caracteres), `environment` (`production` o `staging`), `instance_types` y `volume_sizes` por rol (los define el plan), `image_version` (`null` = AMI más reciente), `operator_cidrs` (tu IP; rechaza `0.0.0.0/0`), puertos de métricas, zona y `desired_state` (`running` o `stopped`). |
+| `variables.tf` | `tenant_slug` (validado: minúsculas, números y guiones, de 3 a 42 caracteres, igual que exige la app para la invitación), `environment` (`production` o `staging`), `instance_types` y `volume_sizes` por rol (los define el plan), `image_version` (`null` = AMI más reciente), `operator_cidrs` (tu IP; rechaza `0.0.0.0/0`), puertos de métricas, zona y `desired_state` (`running` o `stopped`). |
 | `main.tf` | Lee la VPC por defecto y elige una zona que ofrezca los tipos de instancia del plan. Busca las AMIs por los tags `Project` y `Role`. Crea un Security Group por rol con las reglas de la tabla de abajo, las 3 EC2 (IMDSv2, disco gp3 cifrado, cloud-init en `user_data`), la IP elástica del frontend y un `aws_ec2_instance_state` por EC2 para suspender y reanudar. |
 | `outputs.tf` | Contrato de outputs: `app_url`, `frontend_public_ip`, `backend_private_ip`, `database_private_ip`, `public_ips`, `private_ips`, `instance_ids`, `ami_ids`, `security_group_ids`… Un motor futuro (Pulumi, CloudFormation) debe devolver los mismos nombres. |
 
@@ -98,7 +103,7 @@ de la plataforma: recibe variables y devuelve el contrato de outputs.
 | `asistencia-<slug>-database` | `:5432` solo desde el SG backend **del mismo tenant** |
 | Los 3 | `:22`, `:9100`, `:9256`, `:8889` y `:19999` solo desde `operator_cidrs` |
 
-Las EC2 ignoran cambios de `ami` y `user_data` (`ignore_changes`). Así, una AMI nueva
+Las EC2 ignoran cambios de `ami`, `user_data` y `associate_public_ip_address` (`ignore_changes`). El último evita que reanudar un tenant suspendido recree backend y database, porque con la EC2 detenida AWS le quita la IP pública. Así, una AMI nueva
 **no reemplaza** la EC2 de base de datos ni borra sus datos. Para actualizar una EC2 a
 propósito se usa `terraform apply -replace=...`.
 
@@ -126,9 +131,10 @@ Plantilla para construir las 3 AMIs (`frontend`, `backend`, `database`). Se cons
 | `manifest.json` | Lo genera cada build con los IDs de las AMIs. No se versiona. |
 
 ## `infra/ansible/`
-Configuración de las máquinas. Packer usa los roles al construir las imágenes. Los
-playbooks de despliegue (*pendiente*) los ejecutará la plataforma después del
-`terraform apply`.
+Configuración de las máquinas. Packer usa los roles `common`, `nodejs`, `app_build`,
+`frontend`, `backend` y `database` al construir las imágenes. El playbook de despliegue
+y los roles `tenant_*` aplican la configuración de cada tenant después del
+`terraform apply`; la plataforma los ejecuta igual que `scripts/deploy-tenant.sh`.
 
 | Ruta | Para qué sirve |
 | --- | --- |
@@ -140,6 +146,10 @@ playbooks de despliegue (*pendiente*) los ejecutará la plataforma después del
 | `roles/frontend/` | nginx con el build de React ya incluido en `/var/www/asistencia`. Node.js y el código fuente se borran al terminar. `stub_status` en `127.0.0.1:8080` para el collector. El proxy de `/api` al backend del tenant lo agrega el despliegue. |
 | `roles/backend/` | Node.js 22, el usuario `asistencia` y la API compilada en `/opt/asistencia/api/releases/<commit>`, con el enlace `current`. Solo quedan `dist/`, las dependencias de producción (`npm prune --omit=dev`) y `package.json`; el código es de root y la API solo puede leerlo. El servicio `asistencia-api` no arranca hasta que el despliegue escriba `/etc/asistencia/api.env` con los secretos. |
 | `roles/database/` | PostgreSQL 16 con contraseñas `scram-sha-256` y acceso solo desde la red de la VPC. Crea el rol `otel_monitor` (`pg_monitor`, solo desde `127.0.0.1`), que el collector usa para leer estadísticas. |
+| `playbooks/deploy-tenant.yml` | Despliegue de un tenant sobre sus 3 EC2, en orden database → backend → frontend. Primero valida que vengan los secretos y que el inventario tenga los 3 hosts. Es idempotente. |
+| `roles/tenant_database/` | Crea el usuario y la base `asistencia` del tenant con su contraseña, quita los permisos públicos y reescribe `pg_hba.conf` para aceptar solo la IP privada **de su backend**. Es una segunda barrera además del Security Group. |
+| `roles/tenant_backend/` | Escribe `/etc/asistencia/api.env` (`0640`, `no_log`) con la conexión a la BD, `JWT_SECRET`, `PLATFORM_TENANT_SLUG`, `PLATFORM_BOOTSTRAP_KEY`, `OTEL_ENABLED=true` y `APP_VERSION` (el commit de la imagen). Arranca la API, que ejecuta las migraciones, y espera a que `/api/health` responda 200. |
+| `roles/tenant_frontend/` | Escribe el sitio de nginx con el proxy de `/api` y `/api/socket.io` (WebSocket) hacia la IP privada del backend. Valida con `nginx -t`, recarga y comprueba la cadena completa nginx → API → PostgreSQL. |
 
 **Qué mide el OpenTelemetry Collector en cada rol:**
 

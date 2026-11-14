@@ -1,0 +1,4 @@
+- name: Reiniciar la API
+  ansible.builtin.systemd_service:
+    name: asistencia-api
+    state: restarted

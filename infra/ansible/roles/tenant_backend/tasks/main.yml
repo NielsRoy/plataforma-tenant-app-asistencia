@@ -1,0 +1,40 @@
+# API del tenant: escribe sus secretos y la arranca. El código ya viene en la AMI.
+
+- name: Leer la versión de la imagen
+  ansible.builtin.slurp:
+    src: /etc/asistencia/image-release
+  register: image_release
+
+- name: Obtener el commit de la app
+  ansible.builtin.set_fact:
+    app_version: "{{ (image_release.content | b64decode | regex_search('APP_COMMIT=(\\w+)', '\\1') | default(['dev'], true) | first)[:12] }}"
+
+- name: Escribir el entorno de la API (secretos)
+  ansible.builtin.template:
+    src: api.env.j2
+    dest: "{{ api_env_file }}"
+    owner: root
+    group: "{{ api_user }}"
+    mode: "0640"
+  no_log: true
+  notify: Reiniciar la API
+
+- name: Arrancar la API
+  ansible.builtin.systemd_service:
+    name: asistencia-api
+    enabled: true
+    state: started
+
+- name: Aplicar los cambios
+  ansible.builtin.meta: flush_handlers
+
+# La API ejecuta las migraciones al arrancar; /api/health responde 200 solo si
+# también llega a PostgreSQL.
+- name: Esperar a que la API responda
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ api_port }}/api/health"
+    status_code: 200
+  register: api_health
+  until: api_health.status == 200
+  retries: 30
+  delay: 5

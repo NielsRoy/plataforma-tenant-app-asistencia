@@ -1,0 +1,46 @@
+# Base de datos del tenant: usuario y base propios, y acceso solo desde su backend.
+
+- name: Crear el usuario de la base de datos
+  community.postgresql.postgresql_user:
+    name: "{{ tenant_db_user }}"
+    password: "{{ tenant_db_password }}"
+    login_unix_socket: /var/run/postgresql
+  become: true
+  become_user: postgres
+  no_log: true
+
+- name: Crear la base de datos
+  community.postgresql.postgresql_db:
+    name: "{{ tenant_db_name }}"
+    owner: "{{ tenant_db_user }}"
+    encoding: UTF8
+    template: template0
+    login_unix_socket: /var/run/postgresql
+  become: true
+  become_user: postgres
+  register: tenant_db
+
+- name: Quitar permisos públicos sobre la base
+  community.postgresql.postgresql_privs:
+    login_db: "{{ tenant_db_name }}"
+    type: database
+    privs: ALL
+    roles: PUBLIC
+    state: absent
+    login_unix_socket: /var/run/postgresql
+  become: true
+  become_user: postgres
+  # En --check la base todavía no existe
+  when: not (ansible_check_mode and tenant_db is changed)
+
+- name: Restringir pg_hba.conf al backend del tenant
+  ansible.builtin.template:
+    src: pg_hba.conf.j2
+    dest: "{{ postgresql_conf_dir }}/pg_hba.conf"
+    owner: postgres
+    group: postgres
+    mode: "0640"
+  notify: Recargar postgresql
+
+- name: Aplicar la configuración de PostgreSQL
+  ansible.builtin.meta: flush_handlers

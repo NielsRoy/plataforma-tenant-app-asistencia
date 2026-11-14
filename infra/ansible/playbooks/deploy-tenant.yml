@@ -1,0 +1,62 @@
+# Despliegue de un tenant sobre las 3 EC2 que creó Terraform.
+# El código ya viene en las AMIs; aquí solo se aplica la configuración y los
+# secretos de este tenant, en orden: database -> backend -> frontend.
+#
+#   Inventario: generado desde `terraform output -json` (scripts/tenant-inventory.sh)
+#   Secretos:   -e @<archivo>  con tenant_db_password, tenant_jwt_secret y
+#               tenant_bootstrap_key. Nunca pasan por Terraform ni por el repositorio.
+#
+# Lo más simple es usar scripts/deploy-tenant.sh <slug>.
+
+- name: Validar el inventario y los secretos
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Comprobar que vienen los secretos
+      ansible.builtin.assert:
+        that:
+          - tenant_db_password is defined and tenant_db_password | length >= 24
+          - tenant_jwt_secret is defined and tenant_jwt_secret | length >= 32
+          - tenant_bootstrap_key is defined and tenant_bootstrap_key | length >= 32
+          - tenant_bootstrap_key is match('^\S+$')
+        fail_msg: "Faltan secretos o son demasiado cortos (usa scripts/tenant-secrets.sh)"
+        quiet: true
+      no_log: true
+
+    - name: Comprobar el inventario
+      ansible.builtin.assert:
+        that:
+          - groups['database'] | length == 1
+          - groups['backend'] | length == 1
+          - groups['frontend'] | length == 1
+        fail_msg: "El inventario debe tener un host en database, backend y frontend"
+        quiet: true
+
+- name: Base de datos
+  hosts: database
+  become: true
+  gather_facts: false
+  roles:
+    - tenant_database
+
+- name: Backend
+  hosts: backend
+  become: true
+  gather_facts: false
+  roles:
+    - tenant_backend
+
+- name: Frontend
+  hosts: frontend
+  become: true
+  gather_facts: false
+  roles:
+    - tenant_frontend
+
+- name: Resultado
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Mostrar la URL del tenant
+      ansible.builtin.debug:
+        msg: "Tenant {{ tenant_slug }} listo en {{ app_url }}"

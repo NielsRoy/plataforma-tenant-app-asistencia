@@ -9,8 +9,8 @@ variable "tenant_slug" {
   type        = string
 
   validation {
-    condition     = can(regex("^[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$", var.tenant_slug))
-    error_message = "tenant_slug debe tener entre 1 y 42 caracteres: minúsculas, números y guiones, sin guion al inicio ni al final."
+    condition     = can(regex("^[a-z0-9][a-z0-9-]{1,40}[a-z0-9]$", var.tenant_slug))
+    error_message = "tenant_slug debe tener entre 3 y 42 caracteres: minúsculas, números y guiones, sin guion al inicio ni al final."
   }
 }
 

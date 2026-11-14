@@ -228,7 +228,13 @@ resource "aws_instance" "role" {
   lifecycle {
     # Una AMI nueva o un cambio en cloud-init NO reemplaza las EC2 existentes
     # (la de database tiene los datos). Para actualizar se usa -replace a propósito.
-    ignore_changes = [ami, user_data]
+    #
+    # associate_public_ip_address: con la EC2 detenida, AWS le quita la IP pública
+    # y el provider lee este atributo como false. Como cambiarlo obliga a recrear la
+    # instancia, el siguiente apply (reanudar) reemplazaba backend y database y se
+    # perdían los datos. El frontend no lo sufría porque su IP elástica sigue
+    # asociada. Se ignora: el valor real lo fija la creación.
+    ignore_changes = [ami, user_data, associate_public_ip_address]
   }
 }
 

@@ -1,0 +1,7 @@
+api_user: asistencia
+api_port: 3000
+api_env_file: /etc/asistencia/api.env
+tenant_db_name: asistencia
+tenant_db_user: asistencia
+tenant_timezone: America/La_Paz
+jwt_expires_in: 8h

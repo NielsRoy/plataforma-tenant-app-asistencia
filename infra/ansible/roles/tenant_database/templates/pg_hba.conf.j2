@@ -1,0 +1,9 @@
+# Generado por Ansible (despliegue del tenant {{ tenant_slug }})
+# TYPE  DATABASE                USER                    ADDRESS                     METHOD
+local   all                     postgres                                            peer
+local   all                     all                                                 peer
+# Rol de solo lectura de estadísticas para el OpenTelemetry Collector local
+host    postgres                otel_monitor            127.0.0.1/32                scram-sha-256
+# Solo la API de este tenant, desde la IP privada de su backend (el Security Group
+# ya lo restringe; esta es una segunda barrera)
+host    {{ tenant_db_name }}              {{ tenant_db_user }}              {{ backend_private_ip }}/32               scram-sha-256

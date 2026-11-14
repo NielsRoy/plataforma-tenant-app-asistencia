@@ -32,7 +32,6 @@ manifest.json
 
 # Ansible
 *.retry
-infra/ansible/inventory/generated/
 
 # Claves y certificados
 *.pem
@@ -40,7 +39,7 @@ infra/ansible/inventory/generated/
 id_rsa*
 id_ed25519*
 
-# Artefactos de despliegue generados por la plataforma
+# Por tenant: inventario de Ansible, secretos y archivos de trabajo (plataforma y scripts)
 .artifacts/
 .workspaces/
 

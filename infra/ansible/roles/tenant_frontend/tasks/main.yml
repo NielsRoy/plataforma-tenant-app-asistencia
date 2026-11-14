@@ -1,0 +1,29 @@
+# Frontend del tenant: proxy de nginx hacia la IP privada de su backend.
+
+- name: Escribir el sitio con el proxy hacia la API
+  ansible.builtin.template:
+    src: asistencia.conf.j2
+    dest: /etc/nginx/sites-available/asistencia.conf
+    mode: "0644"
+  register: site
+
+- name: Validar la configuración de nginx
+  ansible.builtin.command: nginx -t
+  changed_when: false
+  when: site is changed
+
+- name: Recargar nginx si cambió el sitio
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: reloaded
+  when: site is changed
+
+# Comprueba la cadena completa: nginx -> backend -> PostgreSQL
+- name: Esperar a que la app responda a través del proxy
+  ansible.builtin.uri:
+    url: "http://127.0.0.1/api/health"
+    status_code: 200
+  register: proxy_health
+  until: proxy_health.status == 200
+  retries: 12
+  delay: 5

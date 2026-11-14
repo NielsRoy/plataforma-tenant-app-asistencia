@@ -1,0 +1,3 @@
+tenant_db_name: asistencia
+tenant_db_user: asistencia
+postgresql_conf_dir: /etc/postgresql/16/main
