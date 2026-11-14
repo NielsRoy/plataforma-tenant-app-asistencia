@@ -6,11 +6,13 @@ const { engineCatalog, getEngine } = require('../provisioning/engines');
 const { QueueError, allowedOperations, enqueueOperation } = require('../provisioning/queue');
 const { runToolbox } = require('../provisioning/toolbox');
 const { deliverInvitation, issueTenantInvitation, tenantIsActivated } = require('./invitations');
+const { newToken, tokenHash, validEmail } = require('./security');
 
 // API del ciclo de vida de los tenants (todas las rutas requieren sesión de operador):
 //   GET    /engines                       motores IaC y cuáles están implementados
 //   GET    /tenants                       lista con filtros name, status, plan, environment (RF-14)
-//   POST   /tenants                       registra una solicitud y encola su creación (RF-07)
+//   POST   /tenants                       registra una solicitud (o crea una con los datos de la
+//                                         institución) y encola su creación (RF-07)
 //   GET    /tenants/:id                   detalle, infraestructura y últimas operaciones
 //   POST   /tenants/:id/operations        { kind: create | suspend | resume | redeploy } (RF-16/17)
 //   GET    /tenants/:id/deletion-preview  recursos y datos que se eliminarían (RF-18)
@@ -140,7 +142,8 @@ async function stateResources(config, row) {
     },
   };
   if (!existsSync(path.join(config.workspacesDir, row.slug, '.terraform'))) await engine.init(ctx);
-  return engine.resources(ctx);
+  // Las consultas de datos (data.aws_ami, data.aws_vpc...) no son recursos y no se eliminan
+  return (await engine.resources(ctx)).filter((address) => !/(^|\.)data\./.test(address));
 }
 
 function describeResources(addresses) {
@@ -188,6 +191,34 @@ async function refreshActivation(pool, row) {
   return { ...row, invitation_status: 'activated', invitation_updated_at: new Date() };
 }
 
+function readField(value, label, min, max) {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (text.length < min || text.length > max || text.includes(' ')) {
+    throw new ApiError(400, `${label} debe tener entre ${min} y ${max} caracteres.`);
+  }
+  return text;
+}
+
+// Alta directa desde el panel: crea la solicitud ya con los datos de la institución
+async function createRequest(pool, body, slug) {
+  const institution = readField(body.institutionName, 'El nombre de la institución', 2, 160);
+  const name = readField(body.adminName, 'El nombre del administrador', 2, 120);
+  const email = readField(body.adminEmail, 'El correo del administrador', 3, 254).toLowerCase();
+  const plan = readField(body.planId, 'El plan', 1, 40);
+  if (!validEmail(email)) throw new ApiError(400, 'Ingresa un correo válido.');
+  const { rows: [taken] } = await pool.query(
+    "SELECT 1 FROM platform_tenants WHERE slug = $1 AND status <> 'deleted'", [slug],
+  );
+  if (taken) throw new ApiError(409, 'Ya hay una institución registrada con ese slug.');
+  const { rows: [created] } = await pool.query(`
+    INSERT INTO platform_requests (institution_name, admin_name, admin_email, plan_id, tracking_token_hash)
+    SELECT $1, $2, $3, id, $5 FROM platform_plans WHERE id = $4
+    RETURNING id
+  `, [institution, name, email, plan, tokenHash(newToken())]);
+  if (!created) throw new ApiError(400, 'El plan seleccionado no existe.');
+  return created.id;
+}
+
 function tenantsRouter({ pool, config, registerTenant, tenantConfig }) {
   const router = express.Router();
   const actor = (response) => response.locals.user?.email ?? null;
@@ -214,11 +245,11 @@ function tenantsRouter({ pool, config, registerTenant, tenantConfig }) {
     response.json({ tenants: rows.map(serializeTenant) });
   });
 
-  // RF-07: crear un tenant a partir de una solicitud pendiente
+  // RF-07: crear un tenant a partir de una solicitud pendiente, o directamente con los
+  // datos de la institución (el operador la da de alta desde el panel)
   router.post('/tenants', async (request, response) => {
-    const requestId = request.body?.requestId;
-    if (typeof requestId !== 'string') throw new ApiError(400, 'Indica la solicitud (requestId).');
-    const settings = tenantConfig(request.body);
+    const body = request.body ?? {};
+    const settings = tenantConfig(body);
     const engine = engineCatalog().find((item) => item.name === settings.engine);
     if (!engine?.implemented) {
       throw new ApiError(422, `El motor ${engine?.label ?? settings.engine} todavía no está implementado. Usa Terraform.`);
@@ -226,6 +257,9 @@ function tenantsRouter({ pool, config, registerTenant, tenantConfig }) {
     if (!config.supportedRegions.includes(settings.region)) {
       throw new ApiError(422, `Las imágenes del proyecto solo existen en ${config.supportedRegions.join(', ')}.`);
     }
+    let requestId = body.requestId;
+    if (requestId === undefined) requestId = await createRequest(pool, body, settings.slug);
+    if (typeof requestId !== 'string') throw new ApiError(400, 'Solicitud inválida.');
     const registered = await registerTenant(pool, requestId, settings);
     const operation = await enqueueOperation(pool, { tenantId: registered.tenant.id, kind: 'create', requestedBy: actor(response) });
     const row = await loadTenant(pool, registered.tenant.id);

@@ -19,7 +19,11 @@ export interface Plan {
 
 export type InvitationStatus = 'pending' | 'sent' | 'failed' | 'activated' | 'preview'
 
+export type TenantStatus = 'pending' | 'provisioning' | 'active' | 'suspending' | 'suspended'
+  | 'resuming' | 'deleting' | 'deleted' | 'failed'
+
 export interface InstallationStatus {
+  status?: TenantStatus
   appUrl?: string
   invitationStatus?: InvitationStatus
   invitationUpdatedAt?: string
@@ -48,6 +52,84 @@ export interface TenantRequest extends TrackedRequest {
   adminName: string
   adminEmail: string
   tenant?: TenantConfiguration
+}
+
+export type OperationKind = 'create' | 'suspend' | 'resume' | 'redeploy' | 'delete'
+export type OperationStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+export interface OperationStep {
+  name: string
+  status: 'running' | 'succeeded' | 'failed'
+  startedAt: string
+  finishedAt?: string
+}
+
+export interface OperationSummary {
+  id: string
+  kind: OperationKind
+  status: OperationStatus
+  currentStep: string | null
+  errorMessage: string | null
+  queuedAt: string
+  finishedAt: string | null
+}
+
+export interface Operation extends OperationSummary {
+  steps: OperationStep[]
+  versions: Record<string, unknown>
+  attempt: number
+  requestedBy: string | null
+  startedAt: string | null
+}
+
+export interface TenantInfrastructure {
+  appUrl?: string
+  availabilityZone?: string
+  publicIps?: Record<string, string>
+  privateIps?: Record<string, string>
+  instanceIds?: Record<string, string>
+  amiIds?: Record<string, string>
+  securityGroupIds?: Record<string, string>
+}
+
+export interface Tenant {
+  id: string
+  slug: string
+  status: TenantStatus
+  statusUpdatedAt: string
+  institutionName: string
+  adminName: string
+  adminEmail: string
+  requestId: string
+  planId: string
+  planName: string
+  region: string
+  environment: string
+  engine: string
+  createdAt: string
+  appUrl: string | null
+  invitationStatus: InvitationStatus
+  invitationUpdatedAt: string | null
+  infrastructure: TenantInfrastructure | null
+  allowedOperations: OperationKind[]
+  lastOperation: OperationSummary | null
+}
+
+export interface LogLine {
+  id: number
+  step: string
+  stream: 'stdout' | 'stderr' | 'system'
+  line: string
+}
+
+export interface DeletionPreview {
+  slug: string
+  institutionName: string
+  appUrl: string | null
+  resources: string[]
+  summary: { instances: number; securityGroups: number; securityGroupRules: number; elasticIps: number; total: number }
+  dataLoss: string[]
+  confirmWith: string
 }
 
 export interface PlatformUser {

@@ -41,6 +41,11 @@ control-asistencia-academica/
 | `server/src/runtime/server.js` | Inicia el worker de aprovisionamiento junto con la API y lo detiene al cerrar. Monta la API del ciclo de vida. Al registrar un tenant copia el `plan_id` de la solicitud y limita el slug a 42 caracteres. Muestra errores claros si un plan usa un tipo o un disco fuera del Free Tier. |
 | `server/.env.example` | Agrega `PLATFORM_SECRETS_KEY` (clave AES-256 de los secretos de los tenants) y las opciones del worker: `PLATFORM_WORKER`, `PLATFORM_OPERATOR_CIDRS`, `AWS_PROFILE` y `PLATFORM_REPO_ROOT`. |
 | `client/src/platform/CreatePlanDialog.tsx` | El tipo de AWS pasa a ser una lista con los 4 tipos permitidos, y el disco admite de 8 a 30 GB. |
+| `client/src/platform/TenantOps.tsx` | Vista **Instituciones**: lista con filtros por nombre, estado, plan y entorno (RF-14). El detalle muestra la configuración, la infraestructura (EC2, IPs y AMIs) y las acciones permitidas: crear o reintentar, suspender, reanudar, volver a desplegar y eliminar (RF-16/17/18). Cada operación se sigue **en vivo**, con sus pasos y su log consultados cada 2 s (RF-11). El diálogo de eliminación muestra la vista previa del estado real y pide escribir el slug. |
+| `client/src/platform/tenant-ops.css` | Estilos de esa vista: estados, pasos, log y diálogo de eliminación. |
+| `client/src/platform/CreateTenantDialog.tsx` | **Crear institución** ya no es una vista previa: llama a `POST /api/platform/tenants` y abre el detalle con el despliegue en curso. Muestra los tipos de instancia de cada plan (RF-03). Azure, otras regiones, OpenTofu, Pulumi y CloudFormation aparecen deshabilitados (RF-08). |
+| `client/src/platform/PlatformAdmin.tsx` | En **Solicitudes**, el botón **Registrar y desplegar** registra la institución y encola su creación. Se quitaron las vistas previas locales. La vinculación manual de una instalación externa se mantiene solo para tenants sin desplegar. |
+| `client/src/platform/api.ts`, `tenant-options.ts` | Tipos de tenants, operaciones y logs. Las opciones disponibles de proveedor, región y motor. Las etiquetas en español de estados, operaciones y pasos. Un slug de 42 caracteres como máximo. |
 | `server/src/provisioning/` | Worker y motor de aprovisionamiento. Ver la tabla siguiente. |
 | `server/package.json` | Script `npm run op` (CLI de la cola) y `npm run check` con los archivos nuevos. |
 | `server/src/runtime/tenants.js` | API del ciclo de vida de los tenants. Ver la tabla siguiente. |
@@ -70,10 +75,10 @@ control-asistencia-academica/
 | --- | --- | --- |
 | `GET /engines` | Motores IaC y cuáles están implementados (solo Terraform). | RF-08 |
 | `GET /tenants?name=&status=&plan=&environment=` | Lista con filtros. Por defecto oculta los eliminados. Cada tenant trae su estado, su plan, la infraestructura (outputs), la última operación y las operaciones que admite. | RF-14 |
-| `POST /tenants` | `{ requestId, slug, region, environment, engine }`: registra la solicitud y encola su creación. Responde `202` con la operación. Rechaza motores no implementados y regiones sin AMIs. | RF-07 |
+| `POST /tenants` | `{ requestId, slug, region, environment, engine }` registra esa solicitud y encola su creación. Sin `requestId`, recibe también `institutionName`, `adminName`, `adminEmail` y `planId` y da de alta la institución directamente. Responde `202` con la operación. Rechaza motores no implementados y regiones sin AMIs. | RF-07 |
 | `GET /tenants/:id` | Detalle con las últimas 20 operaciones. Comprueba si el administrador ya activó su cuenta. | RF-14 |
 | `POST /tenants/:id/operations` | `{ kind: create \| suspend \| resume \| redeploy }`. Solo admite lo que permite el estado del tenant, y nunca dos operaciones a la vez. Repetir `create` sobre un tenant `failed` es seguro, porque todos los pasos son idempotentes. | RF-12, RF-16, RF-17 |
-| `GET /tenants/:id/deletion-preview` | Lee el estado real (`terraform state list`) y devuelve los recursos, un resumen, qué datos se pierden y el slug que hay que escribir para confirmar. | RF-18 |
+| `GET /tenants/:id/deletion-preview` | Lee el estado real (`terraform state list`) y devuelve los recursos (sin las consultas `data.*`), un resumen, qué datos se pierden y el slug que hay que escribir para confirmar. | RF-18 |
 | `DELETE /tenants/:id` | `{ confirmSlug }`: si coincide con el slug, encola la eliminación. | RF-18 |
 | `POST /tenants/:id/invitation` | Reenvía la invitación del administrador con la clave guardada cifrada. En modo preview devuelve el enlace. | — |
 | `GET /operations/:id` | Estado, pasos con sus tiempos, error legible y versiones usadas. | RF-11, RF-13 |

@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { ArrowRight, Building2, ChevronRight, CircleAlert, Eye, X } from 'lucide-react'
-import { formatNumber, type Plan } from './api'
-import { engines, environments, optionLabel, providers, regions, slugFromName, type Provider } from './tenant-options'
+import { ArrowRight, Building2, ChevronRight, CircleAlert, Rocket, X } from 'lucide-react'
+import { ApiError, api, errorMessage, formatNumber, type Operation, type Plan, type Tenant } from './api'
+import {
+  engines, environments, optionLabel, providers, regions, slugFromName, slugMaxLength, type Provider,
+} from './tenant-options'
 import './create-plan.css'
 
-export interface TenantPreview {
+// Alta de una institución (RF-07): registra la institución y encola la creación de su
+// infraestructura (Terraform + Ansible). El progreso se sigue en la vista Instituciones.
+
+interface TenantDraft {
   institutionName: string
   adminName: string
   adminEmail: string
@@ -20,25 +25,28 @@ type Props = {
   plans: Plan[]
   usedSlugs: string[]
   onClose: () => void
-  onPreview: (draft: TenantPreview) => void
+  onCreated: (tenant: Tenant, operation: Operation) => void
+  onSessionExpired: () => void
 }
 
-export default function CreateTenantDialog({ plans, usedSlugs, onClose, onPreview }: Props) {
+const available = <T extends { available: boolean }>(options: T[]) => options.filter(option => option.available)
+
+export default function CreateTenantDialog({ plans, usedSlugs, onClose, onCreated, onSessionExpired }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const nameRef = useRef<HTMLInputElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const reviewHeading = useRef<HTMLHeadingElement>(null)
   const [institutionName, setInstitutionName] = useState('')
   const [customSlug, setCustomSlug] = useState<string>()
-  const [provider, setProvider] = useState<Provider>('aws')
-  const [region, setRegion] = useState(regions[0].value)
-  const [engine, setEngine] = useState(engines[0].value)
+  const [provider, setProvider] = useState<Provider>(available(providers)[0].value)
+  const [region, setRegion] = useState(available(regions)[0].value)
+  const [engine, setEngine] = useState(available(engines)[0].value)
   const [planId, setPlanId] = useState('')
   const [error, setError] = useState('')
-  const [review, setReview] = useState<TenantPreview>()
+  const [busy, setBusy] = useState(false)
+  const [review, setReview] = useState<TenantDraft>()
   const plan = plans.find(item => item.id === planId)
   const regionChoices = regions.filter(option => option.provider === provider)
-  const engineChoices = engines.filter(option => provider === 'aws' || option.value !== 'cloudformation')
 
   useEffect(() => {
     const dialog = dialogRef.current
@@ -60,17 +68,33 @@ export default function CreateTenantDialog({ plans, usedSlugs, onClose, onPrevie
     onClose()
   }
 
-  function changeProvider(nextProvider: Provider) {
-    setProvider(nextProvider)
-    setRegion(regions.find(option => option.provider === nextProvider)!.value)
-    if (nextProvider === 'azure' && engine === 'cloudformation') setEngine(engines[0].value)
+  async function create(draft: TenantDraft) {
+    setBusy(true)
+    setError('')
+    try {
+      const result = await api<{ tenant: Tenant; operation: Operation }>('/api/platform/tenants', {
+        method: 'POST',
+        body: JSON.stringify({
+          institutionName: draft.institutionName, adminName: draft.adminName, adminEmail: draft.adminEmail,
+          planId: draft.planId, slug: draft.slug, region: draft.region, environment: draft.environment, engine: draft.engine,
+        }),
+      })
+      dialogRef.current?.close()
+      onCreated(result.tenant, result.operation)
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 401) {
+        onSessionExpired()
+        return
+      }
+      setError(errorMessage(cause, 'No se pudo crear la institución. Intenta de nuevo.'))
+      setBusy(false)
+    }
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (review) {
-      dialogRef.current?.close()
-      onPreview(review)
+      void create(review)
       return
     }
     const data = new FormData(event.currentTarget)
@@ -108,15 +132,15 @@ export default function CreateTenantDialog({ plans, usedSlugs, onClose, onPrevie
 
   return <dialog className="pcd-dialog pct-dialog" ref={dialogRef} aria-labelledby="pct-title" aria-describedby="pct-description" onCancel={event => {
     event.preventDefault()
-    dismiss()
+    if (!busy) dismiss()
   }}>
     <form className="pcd-form" onSubmit={submit}>
       <header className="pcd-header">
         <span className="pcd-header-icon"><Building2 size={23} aria-hidden="true" /></span>
-        <div><h2 id="pct-title">Crear institución</h2><p id="pct-description">Prepara una vista previa del espacio de la institución.</p></div>
-        <button type="button" className="pcd-close" onClick={dismiss} aria-label="Cerrar formulario"><X size={20} /></button>
+        <div><h2 id="pct-title">Crear institución</h2><p id="pct-description">Registra la institución y despliega su infraestructura en AWS.</p></div>
+        <button type="button" className="pcd-close" onClick={dismiss} disabled={busy} aria-label="Cerrar formulario"><X size={20} /></button>
       </header>
-      <ol className="pct-steps" aria-label="Pasos para crear la vista previa">
+      <ol className="pct-steps" aria-label="Pasos para crear la institución">
         <li aria-current={review ? undefined : 'step'}>Datos y configuración</li>
         <li aria-current={review ? 'step' : undefined}><ChevronRight size={14} aria-hidden="true" /> Revisión</li>
       </ol>
@@ -132,9 +156,9 @@ export default function CreateTenantDialog({ plans, usedSlugs, onClose, onPrevie
               <label className="pcd-field"><span>Identificador único</span>
                 <input name="slug" value={customSlug ?? slugFromName(institutionName)}
                   onChange={event => setCustomSlug(event.target.value.toLowerCase())}
-                  aria-describedby="pct-slug-help" pattern="[a-z0-9]+(?:\x2d[a-z0-9]+)*" minLength={3} maxLength={63} autoComplete="off" required />
+                  aria-describedby="pct-slug-help" pattern="[a-z0-9]+(?:\x2d[a-z0-9]+)*" minLength={3} maxLength={slugMaxLength} autoComplete="off" required />
               </label>
-              <p className="pct-help pcd-full" id="pct-slug-help">El identificador admite minúsculas, números y guiones entre palabras.</p>
+              <p className="pct-help pcd-full" id="pct-slug-help">De 3 a {slugMaxLength} caracteres: minúsculas, números y guiones entre palabras. Aparece en los nombres de los recursos de AWS.</p>
               <label className="pcd-field"><span>Nombre del administrador</span>
                 <input name="adminName" autoComplete="name" minLength={2} maxLength={120} required />
               </label>
@@ -157,18 +181,21 @@ export default function CreateTenantDialog({ plans, usedSlugs, onClose, onPrevie
                   <span>{formatNumber(item.limitStudents)} estudiantes</span>
                   <span>{formatNumber(item.databaseGb)} GB de datos</span>
                   <span>Respaldo {item.backup.toLocaleLowerCase('es')}</span>
+                  {item.instances.map(instance => <span key={instance.role} className="pct-plan-machine">
+                    {instance.role}: <code>{instance.awsType}</code> · {formatNumber(instance.ramGib)} GiB · {formatNumber(instance.systemDiskGb)} GB
+                  </span>)}
                 </label>)}
               </div> : <p className="pct-help">Crea un plan en el catálogo para continuar.</p>}
             </fieldset>
             <div className="pct-fields">
               <label className="pcd-field"><span>Proveedor</span>
-                <select value={provider} onChange={event => changeProvider(event.target.value as Provider)}>
-                  {providers.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                <select value={provider} onChange={event => setProvider(event.target.value as Provider)}>
+                  {providers.map(option => <option key={option.value} value={option.value} disabled={!option.available}>{option.label}{option.available ? '' : ' (próximamente)'}</option>)}
                 </select>
               </label>
               <label className="pcd-field"><span>Región</span>
                 <select value={region} onChange={event => setRegion(event.target.value)}>
-                  {regionChoices.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  {regionChoices.map(option => <option key={option.value} value={option.value} disabled={!option.available}>{option.label}{option.available ? '' : ' (sin imágenes)'}</option>)}
                 </select>
               </label>
               <label className="pcd-field"><span>Entorno</span>
@@ -178,7 +205,7 @@ export default function CreateTenantDialog({ plans, usedSlugs, onClose, onPrevie
               </label>
               <label className="pcd-field"><span>Motor de infraestructura</span>
                 <select value={engine} onChange={event => setEngine(event.target.value)}>
-                  {engineChoices.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  {engines.map(option => <option key={option.value} value={option.value} disabled={!option.available}>{option.label}{option.available ? '' : ' (próximamente)'}</option>)}
                 </select>
               </label>
             </div>
@@ -199,17 +226,19 @@ export default function CreateTenantDialog({ plans, usedSlugs, onClose, onPrevie
           {plan && <div className="pct-review-plan">
             <h4>Plan {plan.name}</h4>
             <p>{formatNumber(plan.limitStudents)} estudiantes · {formatNumber(plan.databaseGb)} GB de datos · Respaldo {plan.backup.toLocaleLowerCase('es')}</p>
+            <p>{plan.instances.map(instance => `${instance.role} ${instance.awsType}`).join(' · ')}</p>
           </div>}
+          <p className="pct-help">Se crearán 3 EC2, sus Security Groups y una IP elástica. El despliegue tarda entre 5 y 10 minutos y puedes seguirlo en vivo.</p>
         </section>}
       </div>
       <footer className="pcd-footer">
         {error && <div className="pcd-error" role="alert"><CircleAlert size={17} aria-hidden="true" /><span>{error}</span></div>}
         <div className="pcd-footer-row">
-          <p>La vista previa se conserva mientras mantengas abierto el panel.</p>
+          <p>El despliegue continúa aunque cierres el panel.</p>
           <div className="pcd-actions">
             {review ? <>
-              <button type="button" className="pcd-secondary" onClick={backToDetails}>Volver a los datos</button>
-              <button type="submit" className="pcd-primary"><Eye size={17} aria-hidden="true" /> Crear vista previa</button>
+              <button type="button" className="pcd-secondary" onClick={backToDetails} disabled={busy}>Volver a los datos</button>
+              <button type="submit" className="pcd-primary" disabled={busy}><Rocket size={17} aria-hidden="true" /> {busy ? 'Creando…' : 'Crear y desplegar'}</button>
             </> : <>
               <button type="button" className="pcd-secondary" onClick={dismiss}>Cancelar</button>
               <button type="submit" className="pcd-primary" disabled={plans.length === 0}>Revisar institución <ArrowRight size={17} aria-hidden="true" /></button>

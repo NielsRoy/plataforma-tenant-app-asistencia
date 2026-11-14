@@ -113,13 +113,68 @@ Detalle y solución de problemas: [comandos-manuales.md §4](comandos-manuales.m
 
 ## Paso 8. Levantar Prometheus y Grafana (*pendiente*)
 
-## Paso 9. Levantar la plataforma (*pendiente*)
+## Paso 9. Levantar la plataforma
 
-## Paso 10. Crear el primer tenant desde la plataforma (*pendiente*)
+La plataforma necesita su propia base PostgreSQL. Si no tienes una, créala con Docker:
+
+```powershell
+docker run -d --name asistencia-platform-db -e POSTGRES_USER=asistencia_platform -e POSTGRES_PASSWORD=<contraseña> -e POSTGRES_DB=asistencia_platform -p 5433:5432 -v asistencia-platform-db:/var/lib/postgresql/data postgres:16
+```
+
+Después configura el servidor:
+
+```powershell
+cd Admin-institucional/server
+npm ci
+Copy-Item .env.example .env
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+En `.env` completa:
+- `PLATFORM_DATABASE_URL`, por ejemplo `postgresql://asistencia_platform:<contraseña>@127.0.0.1:5433/asistencia_platform`.
+- `PLATFORM_ADMIN_EMAIL` y `PLATFORM_ADMIN_PASSWORD` (de 12 a 256 caracteres): son tus credenciales de operador.
+- `PLATFORM_SECRETS_KEY`, con la clave que imprimió el último comando. **Guárdala**: sin ella, la plataforma no puede volver a desplegar los tenants que creó.
+
+Levanta la API y el panel en dos terminales:
+
+```powershell
+cd Admin-institucional/server; npm start
+cd Admin-institucional/client; npm ci; npm run dev
+```
+
+✅ **Esperado:**
+- La API muestra `Worker de aprovisionamiento activo` y `API de plataforma en 127.0.0.1:4300`.
+- El panel abre en `http://127.0.0.1:5175/plataforma` y te deja iniciar sesión con tus credenciales de operador.
+
+> Docker Desktop debe estar encendido: el worker ejecuta Terraform, Ansible y los
+> escáneres en el toolbox. Al cerrar la API con Ctrl+C, espera a que termine la
+> operación en curso.
+
+## Paso 10. Crear el primer tenant desde la plataforma
+
+1. En el panel, entra a **Instituciones → Crear institución**.
+2. Completa los datos, elige un plan (Básico usa 3 `t3.micro`), la región **Virginia del Norte** y el motor **Terraform**. Las demás opciones aparecen deshabilitadas.
+3. Pulsa **Crear y desplegar**.
+
+Se abre el detalle de la institución con el progreso en vivo. El log muestra los
+pasos en orden:
+- `Escanear código` (tflint, trivy y checkov), **antes** de `Terraform apply`
+- Ansible
+- la salud de la app
+- la invitación
+
+✅ **Esperado:**
+- En 5 a 10 minutos el estado pasa a **Activa**.
+- En modo preview, **Enviar invitación** muestra el enlace para activar al administrador.
+- **Abrir app** abre el login de la institución.
+
+Desde el mismo detalle puedes **Suspender**, **Reanudar**, **Volver a desplegar** y
+**Eliminar**. Eliminar muestra primero la vista previa de los recursos y pide escribir
+el identificador.
 
 ---
 
 ## Para apagar todo y no gastar
 
-- **Tenants:** suspéndelos o elimínalos desde la plataforma (*pendiente*).
+- **Tenants:** suspéndelos o elimínalos desde la plataforma (**Instituciones →** la institución **→ Suspender o Eliminar**).
 - **Bootstrap:** solo al terminar el proyecto. Consulta [comandos-manuales.md §3.4](comandos-manuales.md#34-eliminar-el-bootstrap-solo-al-terminar-el-proyecto).
