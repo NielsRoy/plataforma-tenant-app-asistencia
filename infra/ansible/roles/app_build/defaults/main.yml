@@ -1,0 +1,16 @@
+# Repositorio público con el código de la app. Packer pasa estos valores
+# (variables app_repo_url y app_repo_ref de infra/packer).
+app_repo_url: "https://github.com/NielsRoy/plataforma-tenant-app-asistencia.git"
+app_repo_ref: "niels-terraform" # rama o tag (no un SHA: git clone --branch)
+
+# Carpeta de la app dentro del repo y subcarpeta que compila cada imagen
+app_repo_subdir: admin-docente-alumno
+app_component: server # server (backend) | client (frontend)
+
+app_src_dir: /tmp/asistencia-src
+app_build_dir: "{{ app_src_dir }}/{{ app_repo_subdir }}/{{ app_component }}"
+
+# Swap temporal: una t3.micro tiene 1 GB de RAM, poco para npm ci y la compilación.
+# Solo existe durante el build; la AMI final no lo incluye.
+app_build_swap_file: /swapfile.build
+app_build_swap_mb: 2048

@@ -1,0 +1,69 @@
+# Clona desde GitHub SOLO la carpeta de la app que necesita la imagen y la compila.
+# Deja el resultado en el hecho app_build_path y el SHA en app_commit.
+# Al terminar, el rol que la usa llama a tasks_from: cleanup.
+
+- name: Instalar git
+  ansible.builtin.apt:
+    name: git
+    state: present
+
+- name: Activar swap temporal para compilar
+  ansible.builtin.shell: |
+    set -e
+    fallocate -l {{ app_build_swap_mb }}M {{ app_build_swap_file }}
+    chmod 600 {{ app_build_swap_file }}
+    mkswap {{ app_build_swap_file }}
+    swapon {{ app_build_swap_file }}
+  args:
+    creates: "{{ app_build_swap_file }}"
+
+- name: Limpiar un clon anterior
+  ansible.builtin.file:
+    path: "{{ app_src_dir }}"
+    state: absent
+
+# --depth 1: solo el último commit. --filter=blob:none + --sparse: no descarga
+# los archivos de las demás carpetas (Admin-institucional, infra, docs...).
+- name: Clonar {{ app_repo_subdir }}/{{ app_component }} ({{ app_repo_ref }})
+  ansible.builtin.command:
+    argv:
+      - git
+      - clone
+      - --quiet
+      - --depth=1
+      - --filter=blob:none
+      - --sparse
+      - --branch={{ app_repo_ref }}
+      - "{{ app_repo_url }}"
+      - "{{ app_src_dir }}"
+  changed_when: true
+
+- name: Descargar solo la carpeta {{ app_component }}
+  ansible.builtin.command:
+    argv: [git, sparse-checkout, set, "{{ app_repo_subdir }}/{{ app_component }}"]
+    chdir: "{{ app_src_dir }}"
+  changed_when: true
+
+- name: Obtener el commit clonado
+  ansible.builtin.command:
+    argv: [git, rev-parse, HEAD]
+    chdir: "{{ app_src_dir }}"
+  register: app_rev
+  changed_when: false
+
+- name: Guardar el commit y la ruta de compilación
+  ansible.builtin.set_fact:
+    app_commit: "{{ app_rev.stdout | trim }}"
+    app_build_path: "{{ app_build_dir }}" # hechos: siguen visibles fuera del rol
+
+- name: Instalar dependencias (npm ci)
+  ansible.builtin.command:
+    argv: [npm, ci, --no-audit, --no-fund, --loglevel=error]
+    chdir: "{{ app_build_dir }}"
+  changed_when: true
+
+- name: Compilar {{ app_component }}
+  ansible.builtin.command:
+    argv: [npm, run, build]
+    chdir: "{{ app_build_dir }}"
+  changed_when: true

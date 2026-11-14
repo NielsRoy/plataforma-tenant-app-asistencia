@@ -86,7 +86,7 @@ Plantilla para construir las 3 AMIs (`frontend`, `backend`, `database`). Se cons
 
 | Archivo | Para qué sirve |
 | --- | --- |
-| `asistencia.pkr.hcl` | Plantilla de las imágenes. Parte de la AMI oficial de Ubuntu 24.04 y construye las 3 imágenes en paralelo como 3 `source` con nombre. Usa el SG temporal solo para tu IP, IMDSv2 y disco cifrado. Ejecuta el playbook `image.yml` de Ansible, limpia la máquina y etiqueta cada AMI con `Project`, `Role` e `ImageVersion`. |
+| `asistencia.pkr.hcl` | Plantilla de las imágenes. Parte de la AMI oficial de Ubuntu 24.04 y construye las 3 imágenes en paralelo como 3 `source` con nombre. Usa el SG temporal solo para tu IP, IMDSv2 y disco cifrado. Ejecuta el playbook `image.yml` de Ansible, limpia la máquina y etiqueta cada AMI y su snapshot con `Project`, `Role` e `ImageVersion`. Las variables `app_repo_url` y `app_repo_ref` indican de qué repositorio y rama se clona la app; frontend y backend llevan además los tags `AppRepo` y `AppRef`. |
 | `manifest.json` | Lo genera cada build con los IDs de las AMIs. No se versiona. |
 
 ## `infra/ansible/`
@@ -97,10 +97,12 @@ playbooks de despliegue (*pendiente*) los ejecutará la plataforma después del
 | Ruta | Para qué sirve |
 | --- | --- |
 | `ansible.cfg` | Rutas de roles y colecciones, sin comprobación de host key, `pipelining` para que sea más rápido. |
-| `playbooks/image.yml` | Playbook de Packer. Aplica `common` y el rol de la imagen (`image_role`) y registra la versión en `/etc/asistencia/image-release`. |
+| `playbooks/image.yml` | Playbook de Packer. Aplica `common` y el rol de la imagen (`image_role`) y registra en `/etc/asistencia/image-release` la versión de la imagen y, en frontend y backend, el repositorio, la rama y el commit exacto de la app (`APP_COMMIT`). |
 | `roles/common/` | Lo que llevan las 3 imágenes. Desactiva las actualizaciones automáticas de apt, que bloquearían el despliegue. Instala, con versión fija y checksum: **node_exporter** `:9100`, **process-exporter** `:9256` (procesos nginx, node, postgres, otelcol, netdata), **OpenTelemetry Collector** `:8889` con config según el rol y **Netdata** `:19999` (datos solo en RAM, alertas desactivadas porque las gestiona Grafana). |
-| `roles/frontend/` | nginx con una página provisional "institución en preparación" y `stub_status` en `127.0.0.1:8080` para el collector. El sitio real, con proxy a `/api`, lo escribe el despliegue. |
-| `roles/backend/` | Node.js 22 en `/opt` y el usuario `asistencia`. Crea el servicio `asistencia-api` (systemd), que no arranca hasta que el despliegue copie el código y `/etc/asistencia/api.env`. |
+| `roles/nodejs/` | Node.js 22 desde el tarball oficial, con checksum. `tasks/remove.yml` lo desinstala en las imágenes que solo lo usan para compilar. |
+| `roles/app_build/` | Clona desde GitHub **solo** `admin-docente-alumno/<server o client>` (`--depth 1 --filter=blob:none --sparse`), ejecuta `npm ci` y `npm run build`, y guarda el commit en `app_commit`. Activa un swap temporal de 2 GB, porque la t3.micro tiene 1 GB de RAM. `tasks/cleanup.yml` borra el código fuente, la caché de npm y el swap. |
+| `roles/frontend/` | nginx con el build de React ya incluido en `/var/www/asistencia`. Node.js y el código fuente se borran al terminar. `stub_status` en `127.0.0.1:8080` para el collector. El proxy de `/api` al backend del tenant lo agrega el despliegue. |
+| `roles/backend/` | Node.js 22, el usuario `asistencia` y la API compilada en `/opt/asistencia/api/releases/<commit>`, con el enlace `current`. Solo quedan `dist/`, las dependencias de producción (`npm prune --omit=dev`) y `package.json`; el código es de root y la API solo puede leerlo. El servicio `asistencia-api` no arranca hasta que el despliegue escriba `/etc/asistencia/api.env` con los secretos. |
 | `roles/database/` | PostgreSQL 16 con contraseñas `scram-sha-256` y acceso solo desde la red de la VPC. Crea el rol `otel_monitor` (`pg_monitor`, solo desde `127.0.0.1`), que el collector usa para leer estadísticas. |
 
 **Qué mide el OpenTelemetry Collector en cada rol:**

@@ -1,0 +1,15 @@
+# Quita Node.js de una imagen que solo lo necesitó para compilar (frontend).
+
+- name: Quitar los enlaces de node, npm y npx
+  ansible.builtin.file:
+    path: "/usr/local/bin/{{ item }}"
+    state: absent
+  loop: [node, npm, npx]
+
+- name: Quitar Node.js y su caché
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ nodejs_dir }}"
+    - /root/.npm

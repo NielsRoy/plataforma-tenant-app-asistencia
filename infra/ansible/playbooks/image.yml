@@ -1,6 +1,7 @@
 # Playbook que usa Packer para construir las AMIs.
 # Instala lo común (agentes de monitoreo) y lo específico del rol de la imagen.
 #   image_role: frontend | backend | database  (lo pasa Packer)
+#   app_repo_url, app_repo_ref: de dónde clonan la app frontend y backend (lo pasa Packer)
 - name: Construir imagen {{ image_role }}
   hosts: all
   become: true
@@ -39,3 +40,8 @@
           IMAGE_ROLE={{ image_role }}
           IMAGE_VERSION={{ image_version | default('dev') }}
           BUILT_AT={{ ansible_date_time.iso8601 }}
+          {% if app_commit is defined %}
+          APP_REPO={{ app_repo_url | default('') }}
+          APP_REF={{ app_repo_ref | default('') }}
+          APP_COMMIT={{ app_commit }}
+          {% endif %}

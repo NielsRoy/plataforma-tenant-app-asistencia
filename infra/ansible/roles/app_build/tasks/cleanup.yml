@@ -1,0 +1,17 @@
+# Borra el código fuente clonado, la caché de npm y el swap temporal.
+
+- name: Borrar el código fuente y la caché de npm
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ app_src_dir }}"
+    - /root/.npm
+    - /tmp/node-compile-cache
+
+- name: Desactivar y borrar el swap temporal
+  ansible.builtin.shell: |
+    swapoff {{ app_build_swap_file }} || true
+    rm -f {{ app_build_swap_file }}
+  args:
+    removes: "{{ app_build_swap_file }}"

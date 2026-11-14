@@ -112,7 +112,17 @@ Cómo funciona `packer build`:
 1. Lanza 3 EC2 `t3.micro` temporales en paralelo, a partir de la AMI oficial más reciente de Ubuntu 24.04.
 2. Crea un Security Group temporal que solo admite SSH desde tu IP.
 3. Ejecuta `infra/ansible/playbooks/image.yml` en cada máquina: el rol `common` instala los agentes de monitoreo y el rol de cada imagen instala lo suyo (nginx, Node.js 22 o PostgreSQL 16).
-4. Limpia la máquina (machine-id, claves SSH), crea la AMI y termina la EC2 temporal.
+4. En frontend y backend, clona desde GitHub solo `admin-docente-alumno/client` o `/server`, compila y borra el código fuente. La imagen queda con la app lista; cada tenant solo le agrega su configuración y sus secretos.
+5. Limpia la máquina (machine-id, claves SSH), crea la AMI y termina la EC2 temporal.
+
+> **Antes del build, haz `git push`.** Packer clona la app desde GitHub
+> (`app_repo_url`, por defecto tu repo, y `app_repo_ref`, por defecto `niels-terraform`),
+> no desde tu copia local. Para otra rama o tag:
+> `-var app_repo_ref=main`.
+>
+> **Cada cambio en el código de la app exige reconstruir frontend y backend** con un
+> `image_version` nuevo. Los tenants nuevos usarán esa versión; los existentes siguen
+> con la suya.
 
 ### 4.1 Validar y construir
 
@@ -121,7 +131,7 @@ Cómo funciona `packer build`:
 ./scripts/iac.ps1 packer build infra/packer
 ```
 
-El `build` tarda entre 10 y 15 minutos. Al final muestra algo como:
+El `build` tarda entre 15 y 25 minutos. Al final muestra algo como:
 
 ```
 ==> Builds finished. The artifacts of successful builds are:
@@ -145,6 +155,15 @@ También genera `infra/packer/manifest.json` (ignorado por git) con los IDs de l
 ./scripts/iac.ps1 packer build -var image_version=1.1.0 infra/packer
 ```
 
+**Nueva versión de la app** (solo frontend y backend; la de database no cambia):
+
+```powershell
+./scripts/iac.ps1 packer build "-only=asistencia.amazon-ebs.frontend,asistencia.amazon-ebs.backend" -var image_version=1.1.0 infra/packer
+```
+
+Cada AMI aparece dos veces en el resumen final porque el post-processor `manifest`
+también cuenta como artefacto. Solo se crea una AMI por imagen.
+
 Terraform usa siempre la AMI más reciente de cada rol (tags `Project=asistencia` y
 `Role=<rol>`).
 
@@ -152,9 +171,12 @@ Terraform usa siempre la AMI más reciente de cada rol (tags `Project=asistencia
 
 ```powershell
 aws ec2 describe-images --owners self --filters "Name=tag:Project,Values=asistencia" --query "Images[].[Name,ImageId,State]" --output table
+aws ec2 describe-images --owners self --filters "Name=tag:Role,Values=backend" --query "Images[].Tags[?Key=='AppRef'].Value" --output text
 ```
 
-Deben aparecer 3 AMIs en estado `available`.
+Deben aparecer las AMIs en estado `available`. El segundo comando muestra la rama de
+la app incluida en el backend. El commit exacto queda dentro de cada EC2, en
+`/etc/asistencia/image-release`.
 
 ### 4.3 Si algo falla
 
@@ -163,13 +185,23 @@ Deben aparecer 3 AMIs en estado `available`.
 
 ### 4.4 Costos y limpieza
 
-- Cada build usa 3 `t3.micro` durante unos 15 minutos, dentro del Free Tier.
+- Cada build usa hasta 3 `t3.micro` durante unos 20 minutos, dentro del Free Tier.
 - Cada AMI guarda un snapshot EBS de 8 GB, cifrado. Se cobra solo el espacio usado, unos 2 a 3 GB por imagen.
 
-Para borrar una AMI antigua:
+Al borrar una AMI antigua hay que borrar **también su snapshot**: si no, AWS sigue
+cobrando el almacenamiento.
+
+**Desde la CLI.** Primero se obtiene el snapshot a partir de la AMI. Las AMIs de la
+versión 1.0.0 no tienen tags en el snapshot; desde la 1.1.0 sí.
 
 ```powershell
+aws ec2 describe-images --image-ids <ami-id> --query "Images[0].BlockDeviceMappings[].Ebs.SnapshotId" --output text
 aws ec2 deregister-image --image-id <ami-id>
-aws ec2 describe-snapshots --owner-ids self --filters "Name=tag:Project,Values=asistencia" --query "Snapshots[].[SnapshotId,StartTime]" --output table
 aws ec2 delete-snapshot --snapshot-id <snap-id>
 ```
+
+**Desde la consola web** (región `us-east-1`, N. Virginia):
+1. Entra a **EC2** → menú izquierdo **Images → AMIs** (`https://us-east-1.console.aws.amazon.com/ec2/home?region=us-east-1#Images:visibility=owned-by-me`).
+2. Selecciona la AMI y anota el **Snapshot ID** que aparece en la pestaña **Storage** (*Block devices*).
+3. **Actions → Deregister AMI → Deregister**. En consolas recientes, marca **Delete associated snapshots** y omite el paso 4.
+4. Menú izquierdo **Elastic Block Store → Snapshots**, selecciona el snapshot anotado → **Actions → Delete snapshot → Delete**.

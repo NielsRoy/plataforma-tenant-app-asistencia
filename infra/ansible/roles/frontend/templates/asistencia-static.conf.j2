@@ -1,0 +1,14 @@
+# Sitio de la imagen: sirve el build de React. El despliegue lo reemplaza por la
+# versión que además reenvía /api y /api/socket.io al backend del tenant.
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    root {{ frontend_web_root }};
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

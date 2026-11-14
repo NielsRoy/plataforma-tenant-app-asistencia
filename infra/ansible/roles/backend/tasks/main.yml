@@ -1,31 +1,10 @@
-# Imagen backend: Node.js y el servicio systemd de la API.
-# El código de la app y su .env los copia el playbook de despliegue.
+# Imagen backend: Node.js, la API ya compilada y su servicio systemd.
+# Solo queda lo necesario para ejecutarla: dist/, dependencias de producción y
+# package.json. El archivo de entorno con los secretos lo escribe el despliegue.
 
-- name: Descargar Node.js {{ nodejs_version }}
-  ansible.builtin.get_url:
-    url: "https://nodejs.org/dist/v{{ nodejs_version }}/node-v{{ nodejs_version }}-linux-x64.tar.xz"
-    dest: /tmp/node.tar.xz
-    checksum: "sha256:{{ nodejs_sha256 }}"
-    mode: "0644"
-
-- name: Instalar Node.js en /opt
-  ansible.builtin.unarchive:
-    src: /tmp/node.tar.xz
-    dest: /opt
-    remote_src: true
-    creates: "/opt/node-v{{ nodejs_version }}-linux-x64/bin/node"
-
-- name: Enlazar node, npm y npx en el PATH
-  ansible.builtin.file:
-    src: "/opt/node-v{{ nodejs_version }}-linux-x64/bin/{{ item }}"
-    dest: "/usr/local/bin/{{ item }}"
-    state: link
-  loop: [node, npm, npx]
-
-- name: Eliminar la descarga de Node.js
-  ansible.builtin.file:
-    path: /tmp/node.tar.xz
-    state: absent
+- name: Instalar Node.js
+  ansible.builtin.include_role:
+    name: nodejs
 
 - name: Crear el usuario de la API
   ansible.builtin.user:
@@ -37,16 +16,63 @@
 
 - name: Crear los directorios de la API
   ansible.builtin.file:
-    path: "{{ item.path }}"
+    path: "{{ item }}"
     state: directory
-    owner: "{{ item.owner }}"
+    owner: root
     group: "{{ api_user }}"
-    mode: "{{ item.mode }}"
+    mode: "0755"
   loop:
-    - { path: "{{ api_home }}", owner: "{{ api_user }}", mode: "0755" }
-    - { path: "{{ api_home }}/releases", owner: "{{ api_user }}", mode: "0755" }
+    - "{{ api_home }}"
+    - "{{ api_home }}/releases"
 
-# El servicio queda habilitado pero no arranca hasta que existan el código y el .env
+- name: Clonar y compilar el backend
+  ansible.builtin.include_role:
+    name: app_build
+  vars:
+    app_component: server
+
+- name: Quitar las dependencias de desarrollo
+  ansible.builtin.command:
+    argv: [npm, prune, --omit=dev, --no-audit, --no-fund, --loglevel=error]
+    chdir: "{{ app_build_path }}"
+  changed_when: true
+
+- name: Definir la carpeta de la versión
+  ansible.builtin.set_fact:
+    api_release_dir: "{{ api_home }}/releases/{{ app_commit[:12] }}"
+
+- name: Crear la carpeta de la versión
+  ansible.builtin.file:
+    path: "{{ api_release_dir }}"
+    state: directory
+    owner: root
+    group: "{{ api_user }}"
+    mode: "0755"
+
+# El código queda de root: el usuario de la API puede leerlo pero no modificarlo
+- name: Copiar solo lo necesario para ejecutar la API
+  ansible.builtin.command:
+    argv: [cp, -a, dist, node_modules, package.json, package-lock.json, "{{ api_release_dir }}/"]
+    chdir: "{{ app_build_path }}"
+  changed_when: true
+
+- name: Asignar permisos a la versión
+  ansible.builtin.command:
+    argv: [chown, -R, "root:{{ api_user }}", "{{ api_release_dir }}"]
+  changed_when: true
+
+- name: Apuntar current a la versión
+  ansible.builtin.file:
+    src: "{{ api_release_dir }}"
+    dest: "{{ api_home }}/current"
+    state: link
+
+- name: Borrar el código fuente y el swap temporal
+  ansible.builtin.include_role:
+    name: app_build
+    tasks_from: cleanup
+
+# Habilitado, pero no arranca hasta que exista /etc/asistencia/api.env
 - name: Crear el servicio de la API
   ansible.builtin.template:
     src: asistencia-api.service.j2

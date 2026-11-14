@@ -2,7 +2,7 @@
 Description=API de control de asistencia (NestJS)
 After=network-online.target otelcol-contrib.service
 Wants=network-online.target
-# No arranca hasta que el despliegue copie el código y el archivo de entorno
+# El código viene en la AMI; no arranca hasta que el despliegue escriba los secretos
 ConditionPathExists={{ api_home }}/current/dist/main.js
 ConditionPathExists=/etc/asistencia/api.env
 
@@ -19,7 +19,6 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths={{ api_home }}
 
 [Install]
 WantedBy=multi-user.target

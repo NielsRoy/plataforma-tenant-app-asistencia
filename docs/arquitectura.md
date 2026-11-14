@@ -77,9 +77,9 @@ idempotentes, así que reintentar no duplica recursos.
 | Herramienta | Función en la arquitectura |
 | --- | --- |
 | **Terraform** | Crea los recursos AWS: el bootstrap (S3 de estado, key pair) y el stack de cada tenant (SGs, 3 EC2, IP elástica en la VPC por defecto). También suspende y reanuda con `aws_ec2_instance_state`. |
-| **Packer** | Construye las 3 AMIs (`frontend`, `backend`, `database`) sobre Ubuntu 24.04. Hornea paquetes y agentes de monitoreo para que el aprovisionamiento de cada tenant sea rápido y repetible. |
+| **Packer** | Construye las 3 AMIs (`frontend`, `backend`, `database`) sobre Ubuntu 24.04. Hornea paquetes, agentes de monitoreo y **la app ya compilada**: frontend y backend clonan desde GitHub solo su carpeta (`admin-docente-alumno/client` o `/server`), compilan una sola vez y borran el código fuente. Así cada tenant arranca en segundos sin compilar nada. |
 | **cloud-init** | Configura el primer arranque de cada EC2: hostname, archivo de identidad (`tenant`, `role`, `environment`), config de los agentes y habilitar servicios. No recibe secretos. |
-| **Ansible** | Configura después del arranque y despliega. En la base de datos crea la BD y el usuario y ajusta `pg_hba`. En el backend copia el artefacto de NestJS, escribe `.env` con los secretos y crea el servicio systemd. En el frontend copia el `dist/` y configura Nginx. Packer también usa sus roles para construir las AMIs. |
+| **Ansible** | Packer usa sus roles para construir las AMIs. Después del arranque aplica la configuración de cada tenant: en la base de datos crea la BD y el usuario; en el backend escribe `api.env` con los secretos y arranca la API; en el frontend configura el proxy de Nginx hacia la IP privada del backend. |
 | **tflint / trivy / checkov** | Analizan el código Terraform antes de cada `apply`. tflint revisa errores y buenas prácticas; trivy y checkov revisan seguridad (IMDSv2, cifrado, reglas de entrada…). Sus resultados aparecen en el log de la operación. |
 | **node_exporter** | Expone métricas del sistema operativo: CPU, RAM, disco y red. |
 | **process-exporter** | Expone métricas por proceso: nginx, node y postgres. |

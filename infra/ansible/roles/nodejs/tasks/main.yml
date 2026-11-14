@@ -1,0 +1,29 @@
+# Node.js desde el tarball oficial, con checksum verificado.
+# backend: queda instalado para ejecutar la API.
+# frontend: solo se usa para compilar y luego se quita (tasks_from: remove).
+
+- name: Descargar Node.js {{ nodejs_version }}
+  ansible.builtin.get_url:
+    url: "https://nodejs.org/dist/v{{ nodejs_version }}/node-v{{ nodejs_version }}-linux-x64.tar.xz"
+    dest: /tmp/node.tar.xz
+    checksum: "sha256:{{ nodejs_sha256 }}"
+    mode: "0644"
+
+- name: Instalar Node.js en /opt
+  ansible.builtin.unarchive:
+    src: /tmp/node.tar.xz
+    dest: /opt
+    remote_src: true
+    creates: "{{ nodejs_dir }}/bin/node"
+
+- name: Enlazar node, npm y npx en el PATH
+  ansible.builtin.file:
+    src: "{{ nodejs_dir }}/bin/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+  loop: [node, npm, npx]
+
+- name: Eliminar la descarga de Node.js
+  ansible.builtin.file:
+    path: /tmp/node.tar.xz
+    state: absent

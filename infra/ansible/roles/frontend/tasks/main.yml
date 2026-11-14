@@ -1,5 +1,7 @@
-# Imagen frontend: nginx sirve el build de React y reenvía /api al backend.
-# La configuración final (IP del backend) la escribe el playbook de despliegue.
+# Imagen frontend: nginx con el build de React ya incluido.
+# Node.js solo se usa para compilar y se quita al terminar: en la AMI quedan
+# únicamente los archivos estáticos. El proxy /api hacia el backend del tenant
+# lo agrega el despliegue, porque la IP privada del backend cambia por tenant.
 
 - name: Instalar nginx
   ansible.builtin.apt:
@@ -12,24 +14,51 @@
     state: absent
   notify: Recargar nginx
 
+- name: Instalar Node.js (solo para compilar)
+  ansible.builtin.include_role:
+    name: nodejs
+
+- name: Clonar y compilar el frontend
+  ansible.builtin.include_role:
+    name: app_build
+  vars:
+    app_component: client
+
+- name: Vaciar el directorio del sitio
+  ansible.builtin.file:
+    path: "{{ frontend_web_root }}"
+    state: absent
+
 - name: Crear el directorio del sitio
   ansible.builtin.file:
-    path: /var/www/asistencia
+    path: "{{ frontend_web_root }}"
     state: directory
     owner: root
     group: root
     mode: "0755"
 
-- name: Página provisional hasta el primer despliegue
+- name: Copiar el build de React al sitio
   ansible.builtin.copy:
-    src: placeholder.html
-    dest: /var/www/asistencia/index.html
-    mode: "0644"
-    force: false
+    src: "{{ app_build_path }}/dist/"
+    dest: "{{ frontend_web_root }}/"
+    remote_src: true
+    owner: root
+    group: root
+    mode: u=rwX,go=rX
 
-- name: Sitio provisional (sin backend todavía)
+- name: Borrar el código fuente y el swap temporal
+  ansible.builtin.include_role:
+    name: app_build
+    tasks_from: cleanup
+
+- name: Quitar Node.js
+  ansible.builtin.include_role:
+    name: nodejs
+    tasks_from: remove
+
+- name: Sitio estático (sin proxy al backend todavía)
   ansible.builtin.template:
-    src: asistencia-placeholder.conf.j2
+    src: asistencia-static.conf.j2
     dest: /etc/nginx/sites-available/asistencia.conf
     mode: "0644"
   notify: Recargar nginx

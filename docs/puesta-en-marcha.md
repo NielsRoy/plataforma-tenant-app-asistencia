@@ -25,10 +25,15 @@ No hace falta instalar Terraform, Packer ni Ansible: vienen dentro del toolbox D
 ## Paso 2. Clonar el repositorio
 
 ```powershell
-git clone <url-del-repositorio> control-asistencia-academica
+git clone https://github.com/NielsRoy/plataforma-tenant-app-asistencia.git control-asistencia-academica
 cd control-asistencia-academica
 git checkout niels-terraform
 ```
+
+> Las AMIs de frontend y backend clonan la app desde este mismo repositorio en GitHub
+> (rama `niels-terraform`). Por eso **los cambios en `admin-docente-alumno/` deben
+> estar subidos con `git push` antes del paso 7**: Packer usa lo que está en GitHub, no
+> tu copia local.
 
 ## Paso 3. Configurar las credenciales de AWS
 
@@ -98,7 +103,7 @@ aws ec2 describe-images --owners self --filters "Name=tag:Project,Values=asisten
 
 ✅ **Esperado:**
 - `validate` muestra `The configuration is valid.`
-- `build` tarda entre 10 y 15 minutos y termina con 3 AMIs creadas: frontend, backend y database.
+- `build` tarda entre 15 y 25 minutos y termina con 3 AMIs creadas: frontend, backend y database. Frontend y backend tardan más porque clonan y compilan la app.
 - La tabla final muestra las 3 AMIs `available`.
 
 Detalle y solución de problemas: [comandos-manuales.md §4](comandos-manuales.md#4-amis-con-packer-una-vez-por-versión-de-las-imágenes).

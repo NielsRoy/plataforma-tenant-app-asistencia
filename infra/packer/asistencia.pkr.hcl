@@ -4,6 +4,9 @@
 #
 #   packer build infra/packer                                   -> las 3 imágenes
 #   packer build "-only=asistencia.amazon-ebs.backend" infra/packer -> solo una (comillas en PowerShell)
+#
+# frontend y backend incluyen la app: Ansible clona desde GitHub solo su carpeta
+# (admin-docente-alumno/client o /server), la compila y borra el código fuente.
 
 packer {
   required_version = ">= 1.11.0"
@@ -36,6 +39,18 @@ variable "image_version" {
   default     = "1.0.0"
 }
 
+variable "app_repo_url" {
+  description = "Repositorio público de donde frontend y backend clonan la app."
+  type        = string
+  default     = "https://github.com/NielsRoy/plataforma-tenant-app-asistencia.git"
+}
+
+variable "app_repo_ref" {
+  description = "Rama o tag de la app que se incluye en las imágenes."
+  type        = string
+  default     = "niels-terraform"
+}
+
 variable "instance_type" {
   description = "Instancia temporal de construcción (Free Tier)."
   type        = string
@@ -57,6 +72,12 @@ locals {
     ImageVersion = var.image_version
     BaseOS       = "ubuntu-24.04"
     BuildTime    = local.build_time
+  }
+
+  # Solo en frontend y backend, que llevan la app
+  app_tags = {
+    AppRepo = var.app_repo_url
+    AppRef  = var.app_repo_ref
   }
 }
 
@@ -107,21 +128,24 @@ build {
   name = "asistencia"
 
   source "source.amazon-ebs.ubuntu" {
-    name     = "frontend"
-    ami_name = "${var.project}-frontend-${var.image_version}-${local.build_time}"
-    tags     = merge(local.common_tags, { Name = "${var.project}-frontend-${var.image_version}", Role = "frontend" })
+    name          = "frontend"
+    ami_name      = "${var.project}-frontend-${var.image_version}-${local.build_time}"
+    tags          = merge(local.common_tags, local.app_tags, { Name = "${var.project}-frontend-${var.image_version}", Role = "frontend" })
+    snapshot_tags = merge(local.common_tags, { Name = "${var.project}-frontend-${var.image_version}", Role = "frontend" })
   }
 
   source "source.amazon-ebs.ubuntu" {
-    name     = "backend"
-    ami_name = "${var.project}-backend-${var.image_version}-${local.build_time}"
-    tags     = merge(local.common_tags, { Name = "${var.project}-backend-${var.image_version}", Role = "backend" })
+    name          = "backend"
+    ami_name      = "${var.project}-backend-${var.image_version}-${local.build_time}"
+    tags          = merge(local.common_tags, local.app_tags, { Name = "${var.project}-backend-${var.image_version}", Role = "backend" })
+    snapshot_tags = merge(local.common_tags, { Name = "${var.project}-backend-${var.image_version}", Role = "backend" })
   }
 
   source "source.amazon-ebs.ubuntu" {
-    name     = "database"
-    ami_name = "${var.project}-database-${var.image_version}-${local.build_time}"
-    tags     = merge(local.common_tags, { Name = "${var.project}-database-${var.image_version}", Role = "database" })
+    name          = "database"
+    ami_name      = "${var.project}-database-${var.image_version}-${local.build_time}"
+    tags          = merge(local.common_tags, { Name = "${var.project}-database-${var.image_version}", Role = "database" })
+    snapshot_tags = merge(local.common_tags, { Name = "${var.project}-database-${var.image_version}", Role = "database" })
   }
 
   # Esperar a que cloud-init termine (usa apt en el primer arranque)
@@ -134,7 +158,7 @@ build {
     user          = "ubuntu"
     use_proxy     = false
     extra_arguments = [
-      "--extra-vars", "image_role=${source.name} image_version=${var.image_version}",
+      "--extra-vars", "image_role=${source.name} image_version=${var.image_version} app_repo_url=${var.app_repo_url} app_repo_ref=${var.app_repo_ref}",
     ]
     ansible_env_vars = [
       "ANSIBLE_CONFIG=${path.root}/../ansible/ansible.cfg",
@@ -156,6 +180,8 @@ build {
     strip_path = true
     custom_data = {
       image_version = var.image_version
+      app_repo_url  = var.app_repo_url
+      app_repo_ref  = var.app_repo_ref
     }
   }
 }
