@@ -19,7 +19,7 @@ control-asistencia-academica/
 │   ├── packer/               Plantilla de las AMIs
 │   ├── ansible/              Roles y playbooks
 │   └── cloud-init/           Plantilla de primer arranque
-├── monitoring/               (pendiente) Prometheus y Grafana con docker compose
+├── monitoring/               Prometheus y Grafana con docker compose
 ├── .workspaces/              Archivos de trabajo por tenant (secretos, inventario). No se versiona
 ├── .gitattributes            Fuerza finales de línea LF en scripts y plantillas
 └── .gitignore                Excluye estado de Terraform, *.tfvars, claves, artefactos
@@ -104,7 +104,7 @@ en el toolbox Docker los mismos comandos de [tenant-manual.md](tenant-manual.md)
 | `redact.js` | Sanea cada línea del log: valores de los secretos del tenant, claves de AWS, `password=`, `Authorization: Bearer` y colores ANSI. |
 | `oplog.js` | Guarda los pasos y el log por lotes en `platform_operations` y `platform_operation_logs`. |
 | `errors.js` | Traduce fallos conocidos a mensajes para el operador: Docker apagado, credenciales de AWS, límite de vCPU, sin AMIs, estado bloqueado, SSH… |
-| `targets.js` | Escribe `monitoring/prometheus/targets/<slug>.json` (file_sd) con los 4 agentes de cada EC2 y las etiquetas `tenant`, `environment`, `role` y `exporter`. Lo retira al suspender o eliminar. |
+| `targets.js` | Escribe `monitoring/prometheus/targets/<slug>.json` (file_sd) con los 4 agentes de cada EC2 y las etiquetas `tenant`, `environment`, `role`, `exporter`, `instance` y `public_ip`. Lo retira al suspender o eliminar. |
 | `cli.js` | `npm run op -- enqueue <slug> <operación>`, `list` y `logs <id> --follow`, para usar la cola antes de que exista la interfaz. |
 
 | Operación | Pasos |
@@ -251,9 +251,27 @@ entrega como `user_data`.
 | --- | --- |
 | `node.yaml.tftpl` | La usan los 3 roles. Pone el hostname `<slug>-<rol>` (lo muestran netdata y los logs), la zona horaria y `/etc/asistencia/identity.env` con proyecto, tenant, rol y entorno, y reinicia netdata y el collector para que tomen el nombre nuevo. **No lleva secretos**: `user_data` queda en el estado de Terraform y se puede leer desde la API de EC2. Los secretos los escribe Ansible. |
 
-## `monitoring/` (pendiente)
-Archivo `docker-compose.yml` con Prometheus y Grafana, más la configuración de cada
-uno:
-- `prometheus.yml`
-- dashboards y alertas de Grafana
-- `prometheus/targets/`, donde la plataforma escribe los targets de cada tenant
+## `monitoring/`
+Prometheus y Grafana en la PC del operador, con `docker compose`.
+
+| Archivo | Para qué sirve |
+| --- | --- |
+| `docker-compose.yml` | `prom/prometheus:v3.15.1` en `127.0.0.1:9090` (retención de 7 días) y `grafana/grafana:13.2.5` en `127.0.0.1:3001`, con acceso anónimo de solo lectura. Los datos quedan en volúmenes de Docker. |
+| `.env.example` | `GRAFANA_ADMIN_PASSWORD`. El `.env` real no se versiona. |
+| `prometheus/prometheus.yml` | Job `tenants` con `file_sd_configs` sobre `targets/*.json`, releídos cada 30 s. |
+| `prometheus/targets/` | Un archivo por tenant, escrito por la plataforma (`provisioning/targets.js`). Cada EC2 tiene 4 targets (node_exporter, process-exporter, otelcol y netdata) con las etiquetas `tenant`, `environment`, `role`, `exporter`, `instance` y `public_ip`. Netdata usa `__metrics_path__=/api/v1/allmetrics` y `format=prometheus`. |
+| `grafana/provisioning/` | Fuente de datos Prometheus (uid `prometheus`) y el proveedor que carga los dashboards de la carpeta `grafana/dashboards/`. |
+| `grafana/dashboards/tenants.json` | Dashboard **Tenants de asistencia** (uid `asistencia-tenants`). Lo describe la tabla de abajo. |
+
+**Paneles del dashboard** (variables **Entorno** y **Tenant**, de selección múltiple):
+
+| Fila | Paneles | Origen |
+| --- | --- | --- |
+| Disponibilidad | % de agentes respondiendo; app respondiendo (`/api/health`); tabla de agentes por máquina con enlace a Netdata | `up`, `httpcheck_status` |
+| Recursos de cada EC2 | CPU, memoria, disco raíz, red y carga | node_exporter |
+| Aplicación | Peticiones por segundo por código HTTP, latencia p95, % de errores 5xx, peticiones a nginx y duración del chequeo de salud | OpenTelemetry (`telemetry.ts` y collector) |
+| Base de datos | Conexiones, tamaño de la base `asistencia` y transacciones (commits y rollbacks) | Receptor `postgresql` del collector |
+| Procesos | CPU y memoria de nginx, node, postgres, otelcol, netdata y node_exporter | process-exporter |
+
+La plataforma enlaza al dashboard ya filtrado desde el detalle de cada institución
+(**Ver en Grafana**).

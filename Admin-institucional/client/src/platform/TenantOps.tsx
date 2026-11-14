@@ -15,7 +15,11 @@ import './tenant-ops.css'
 // Vista "Instituciones": lista con filtros (RF-14), detalle con acciones de ciclo de
 // vida (RF-16/17/18) y progreso en vivo de cada operación con su log (RF-11).
 
-const transitional: TenantStatus[] = ['provisioning', 'suspending', 'resuming', 'deleting']
+// Grafana local (monitoring/docker-compose.yml). El dashboard acepta el tenant por URL.
+const grafanaUrl = 'http://127.0.0.1:3001'
+const grafanaLink = (tenant: Tenant) => `${grafanaUrl}/d/asistencia-tenants?var-environment=${encodeURIComponent(tenant.environment)}&var-tenant=${encodeURIComponent(tenant.slug)}`
+
+const transitional: TenantStatus[] =['provisioning', 'suspending', 'resuming', 'deleting']
 const isBusy = (tenant: Tenant) => transitional.includes(tenant.status)
   || tenant.lastOperation?.status === 'queued' || tenant.lastOperation?.status === 'running'
 
@@ -339,6 +343,7 @@ function TenantDetail({ tenantId, onChanged, onSessionExpired }: {
         <Trash2 size={15} aria-hidden="true" /> Eliminar
       </button>}
       {appLink && <a className="pa-secondary to-link-button" href={appLink} target="_blank" rel="noreferrer">Abrir app <ExternalLink size={14} /></a>}
+      {tenant.infrastructure && tenant.status !== 'deleted' && <a className="pa-secondary to-link-button" href={grafanaLink(tenant)} target="_blank" rel="noreferrer">Ver en Grafana <ExternalLink size={14} /></a>}
     </div>
     {running && <p className="to-muted" role="status"><Loader2 size={14} className="to-spin" aria-hidden="true" /> Hay una operación en curso; las acciones se habilitan al terminar.</p>}
     {error && <div className="pa-error" role="alert"><CircleAlert size={17} /><span>{error}</span></div>}

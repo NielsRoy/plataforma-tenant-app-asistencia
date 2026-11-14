@@ -26,6 +26,8 @@ function targetGroups(tenant, outputs) {
           role,
           exporter,
           instance: `${tenant.slug}-${role}`,
+          // Para el enlace a Netdata de la tabla de agentes en Grafana
+          public_ip: ip,
           ...labels,
         },
       });

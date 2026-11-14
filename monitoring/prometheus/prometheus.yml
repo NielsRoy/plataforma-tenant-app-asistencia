@@ -1,0 +1,22 @@
+# Prometheus de la PC del operador. Lee (modelo pull) los agentes de las EC2 de
+# todos los tenants. Las EC2 solo aceptan estas conexiones desde la IP del
+# operador (Security Groups).
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Un archivo por tenant en targets/<slug>.json, escrito por la plataforma al
+  # crear o reanudar un tenant y retirado al suspenderlo o eliminarlo. Cada grupo
+  # trae las etiquetas tenant, environment, role, exporter, instance y public_ip.
+  # refresh_interval: en Docker Desktop los cambios de archivos de Windows no
+  # siempre llegan como eventos, así que además se relee cada 30 s.
+  - job_name: tenants
+    file_sd_configs:
+      - files: ["/etc/prometheus/targets/*.json"]
+        refresh_interval: 30s

@@ -111,7 +111,25 @@ Detalle y solución de problemas: [comandos-manuales.md §4](comandos-manuales.m
 > **Opcional:** con los pasos 1 a 7 ya puedes crear un tenant completo a mano, sin la
 > plataforma, siguiendo [tenant-manual.md](tenant-manual.md).
 
-## Paso 8. Levantar Prometheus y Grafana (*pendiente*)
+## Paso 8. Levantar Prometheus y Grafana
+
+```powershell
+cd monitoring
+Copy-Item .env.example .env
+docker compose up -d
+docker compose ps
+cd ..
+```
+
+En `monitoring/.env`, define `GRAFANA_ADMIN_PASSWORD` antes del `up`.
+
+✅ **Esperado:**
+- `docker compose ps` muestra `prometheus` y `grafana` en estado `running`.
+- `http://127.0.0.1:9090/targets` muestra el job `tenants`, vacío hasta que crees un tenant desde la plataforma.
+- `http://127.0.0.1:3001` abre Grafana, que muestra el dashboard **Asistencia → Tenants de asistencia** sin pedir usuario. Para editar, entra con `admin` y tu contraseña.
+
+> Prometheus y Grafana guardan sus datos en volúmenes de Docker: `docker compose down`
+> los conserva y `docker compose down -v` los borra.
 
 ## Paso 9. Levantar la plataforma
 
@@ -165,6 +183,7 @@ pasos en orden:
 
 ✅ **Esperado:**
 - En 5 a 10 minutos el estado pasa a **Activa**.
+- Aproximadamente 1 minuto después, **Ver en Grafana** muestra las 3 EC2 del tenant con sus métricas, y Prometheus (`/targets`) muestra sus 12 agentes en `UP`.
 - En modo preview, **Enviar invitación** muestra el enlace para activar al administrador.
 - **Abrir app** abre el login de la institución.
 

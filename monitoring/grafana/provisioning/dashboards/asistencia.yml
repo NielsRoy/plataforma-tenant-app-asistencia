@@ -1,0 +1,10 @@
+# Paneles versionados en monitoring/grafana/dashboards (se cargan al iniciar).
+apiVersion: 1
+providers:
+  - name: asistencia
+    folder: Asistencia
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
