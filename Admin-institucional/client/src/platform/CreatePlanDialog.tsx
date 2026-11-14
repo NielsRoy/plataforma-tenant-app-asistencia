@@ -11,10 +11,14 @@ type CreatePlanDialogProps = {
 
 const maxInteger = 2_147_483_647
 
+// Tipos del Free Tier de AWS compatibles con las AMIs (x86_64). La API y la base de
+// datos rechazan cualquier otro.
+const awsTypes = ['t3.micro', 't3.small', 'c7i-flex.large', 'm7i-flex.large']
+
 const roleFields = [
-  { role: 'frontend', label: 'Frontend', Icon: Monitor, vcpu: 2, ramGib: 1, systemDiskGb: 32, awsType: 't3.micro', azureType: 'Standard_B2ts_v2' },
-  { role: 'backend', label: 'Backend', Icon: Server, vcpu: 2, ramGib: 4, systemDiskGb: 32, awsType: 't3.medium', azureType: 'Standard_B2ls_v2' },
-  { role: 'database', label: 'Base de datos', Icon: Database, vcpu: 2, ramGib: 4, systemDiskGb: 32, awsType: 't3.medium', azureType: 'Standard_B2ls_v2' },
+  { role: 'frontend', label: 'Frontend', Icon: Monitor, vcpu: 2, ramGib: 1, systemDiskGb: 8, awsType: 't3.micro', azureType: 'Standard_B2ts_v2' },
+  { role: 'backend', label: 'Backend', Icon: Server, vcpu: 2, ramGib: 2, systemDiskGb: 8, awsType: 't3.small', azureType: 'Standard_B2ls_v2' },
+  { role: 'database', label: 'Base de datos', Icon: Database, vcpu: 2, ramGib: 2, systemDiskGb: 10, awsType: 't3.small', azureType: 'Standard_B2ls_v2' },
 ] satisfies (PlanInstance & { label: string; Icon: typeof Monitor })[]
 
 function InstanceFields({ fields }: { fields: (typeof roleFields)[number] }) {
@@ -31,12 +35,14 @@ function InstanceFields({ fields }: { fields: (typeof roleFields)[number] }) {
         <input name={`${role}.ramGib`} type="number" inputMode="decimal" min={0.01} max={9999.99} step={0.01} defaultValue={fields.ramGib} required />
       </label>
       <label className="pcd-field pcd-full">
-        <span>Disco del sistema (GB)</span>
-        <input name={`${role}.systemDiskGb`} type="number" inputMode="numeric" min={1} max={maxInteger} step={1} defaultValue={fields.systemDiskGb} required />
+        <span>Disco del sistema (GB, 8 a 30)</span>
+        <input name={`${role}.systemDiskGb`} type="number" inputMode="numeric" min={8} max={30} step={1} defaultValue={fields.systemDiskGb} required />
       </label>
       <label className="pcd-field pcd-full">
         <span>Modelo de referencia AWS</span>
-        <input className="pcd-model" name={`${role}.awsType`} defaultValue={fields.awsType} maxLength={80} spellCheck={false} required />
+        <select className="pcd-model" name={`${role}.awsType`} defaultValue={fields.awsType} required>
+          {awsTypes.map(type => <option key={type} value={type}>{type}</option>)}
+        </select>
       </label>
       <label className="pcd-field pcd-full">
         <span>Modelo de referencia Azure</span>

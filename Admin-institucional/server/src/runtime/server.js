@@ -143,6 +143,12 @@ async function createPlan(pool, plan) {
     if (error.code === '23505' && error.constraint === 'platform_plans_pkey') {
       throw new HttpError(409, 'Ya existe un plan con ese identificador. Usa otro nombre.');
     }
+    if (error.code === '23514' && error.constraint === 'platform_plan_instances_free_tier_type_check') {
+      throw new HttpError(400, 'El tipo de AWS debe ser t3.micro, t3.small, c7i-flex.large o m7i-flex.large (Free Tier).');
+    }
+    if (error.code === '23514' && error.constraint === 'platform_plan_instances_free_tier_disk_check') {
+      throw new HttpError(400, 'El disco del sistema debe tener entre 8 y 30 GB (Free Tier).');
+    }
     throw error;
   }
 }
@@ -183,8 +189,8 @@ async function registerTenant(pool, id, config) {
       if (!current) throw new HttpError(404, 'Solicitud no encontrada.');
       if (current.status === 'pending') {
         await client.query(`
-          INSERT INTO platform_tenants (request_id, slug, region, environment, engine)
-          VALUES ($1, $2, $3, $4, $5)
+          INSERT INTO platform_tenants (request_id, slug, region, environment, engine, plan_id)
+          SELECT $1, $2, $3, $4, $5, plan_id FROM platform_requests WHERE id = $1
         `, [id, config.slug, config.region, config.environment, config.engine]);
         await client.query("UPDATE platform_requests SET status = 'registered', updated_at = now() WHERE id = $1", [id]);
       }

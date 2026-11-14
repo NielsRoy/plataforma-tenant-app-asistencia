@@ -33,6 +33,33 @@ control-asistencia-academica/
 | `server/src/main.ts` | Importa `./telemetry` como primer módulo, para que la instrumentación intercepte `http`, `express` y `pg` antes de que se carguen. |
 | `server/.env.example` | Documenta `OTEL_ENABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` y `APP_VERSION`. |
 
+## Cambios en `Admin-institucional/` para el aprovisionamiento
+
+| Archivo | Para qué sirve |
+| --- | --- |
+| `server/src/migrations/005_provisioning.sql` | Modelo de datos del aprovisionamiento. Se aplica solo al iniciar la API o con `npm run db:migrate`. Ver la tabla de abajo. |
+| `server/src/runtime/server.js` | Al registrar un tenant copia el `plan_id` de la solicitud. Muestra errores claros si un plan usa un tipo o un disco fuera del Free Tier. |
+| `server/.env.example` | Agrega `PLATFORM_SECRETS_KEY`, la clave AES-256 con la que se cifrarán los secretos de los tenants. |
+| `client/src/platform/CreatePlanDialog.tsx` | El tipo de AWS pasa a ser una lista con los 4 tipos permitidos, y el disco admite de 8 a 30 GB. |
+
+**Qué agrega `005_provisioning.sql`:**
+
+| Objeto | Contenido |
+| --- | --- |
+| `platform_tenants` (columnas nuevas) | `status` (`pending`, `provisioning`, `active`, `suspending`, `suspended`, `resuming`, `deleting`, `deleted`, `failed`), `plan_id`, `outputs` (contrato de outputs del motor IaC, sin secretos), `secrets_enc` (secretos cifrados con AES-256-GCM), `status_updated_at` y `deleted_at`. El slug y la URL solo son únicos entre los tenants no eliminados, así que un tenant eliminado libera los suyos. |
+| `platform_operations` | Una fila por operación (`create`, `suspend`, `resume`, `delete`, `redeploy`), con su estado (`queued`, `running`, `succeeded`, `failed`, `cancelled`), parámetros, pasos, error legible y versiones usadas (RF-13). Admite una sola operación activa por tenant. Tiene columnas reservadas para reintentos (`retry_of`, `attempt`) y auditoría (`requested_by`). |
+| `platform_operation_logs` | Log saneado línea por línea, por paso: `scan`, `init`, `plan`, `apply`, `ansible`… La interfaz lo lee mientras la operación avanza. |
+| `platform_alerts` | Alertas que Grafana envía por webhook, asociadas al tenant, al entorno y al rol. |
+| Planes | Pasan a tipos del Free Tier, todos x86_64 como las AMIs. Una restricción impide otros tipos y discos fuera de 8 a 30 GB. |
+
+**Planes con los tipos del Free Tier:**
+
+| Plan | Frontend | Backend | Base de datos | Disco total |
+| --- | --- | --- | --- | --- |
+| Básico | t3.micro (1 GiB) | t3.micro (1 GiB) | t3.micro (1 GiB) | 24 GB |
+| Estándar | t3.micro (1 GiB) | t3.small (2 GiB) | t3.small (2 GiB) | 26 GB |
+| Avanzado | t3.small (2 GiB) | c7i-flex.large (4 GiB) | m7i-flex.large (8 GiB) | 28 GB |
+
 ## `docs/`
 Documentación del proyecto. Incluye los entregables de diagrama de arquitectura, flujo
 de creación y, más adelante, el catálogo de planes y las instrucciones de operación.
