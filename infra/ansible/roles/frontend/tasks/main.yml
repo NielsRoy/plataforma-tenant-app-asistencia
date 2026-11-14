@@ -1,0 +1,62 @@
+# Imagen frontend: nginx sirve el build de React y reenvía /api al backend.
+# La configuración final (IP del backend) la escribe el playbook de despliegue.
+
+- name: Instalar nginx
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+
+- name: Quitar el sitio por defecto de nginx
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Recargar nginx
+
+- name: Crear el directorio del sitio
+  ansible.builtin.file:
+    path: /var/www/asistencia
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Página provisional hasta el primer despliegue
+  ansible.builtin.copy:
+    src: placeholder.html
+    dest: /var/www/asistencia/index.html
+    mode: "0644"
+    force: false
+
+- name: Sitio provisional (sin backend todavía)
+  ansible.builtin.template:
+    src: asistencia-placeholder.conf.j2
+    dest: /etc/nginx/sites-available/asistencia.conf
+    mode: "0644"
+  notify: Recargar nginx
+
+- name: Habilitar el sitio
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/asistencia.conf
+    dest: /etc/nginx/sites-enabled/asistencia.conf
+    state: link
+  notify: Recargar nginx
+
+- name: Estado interno de nginx para el OpenTelemetry Collector (solo localhost)
+  ansible.builtin.template:
+    src: status.conf.j2
+    dest: /etc/nginx/conf.d/status.conf
+    mode: "0644"
+  notify: Recargar nginx
+
+- name: Validar la configuración de nginx
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
+- name: Habilitar y arrancar nginx
+  ansible.builtin.systemd_service:
+    name: nginx
+    enabled: true
+    state: started
+
+- name: Aplicar la configuración de nginx
+  ansible.builtin.meta: flush_handlers

@@ -1,0 +1,19 @@
+[Unit]
+Description=process-exporter (métricas por proceso)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Necesita leer /proc de procesos de otros usuarios
+User=root
+ExecStart=/usr/local/bin/process-exporter \
+  -config.path /etc/process-exporter/config.yml \
+  -web.listen-address :{{ process_exporter_port }}
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

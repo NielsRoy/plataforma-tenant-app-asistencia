@@ -1,0 +1,10 @@
+# Generado por Ansible (rol database)
+# TYPE  DATABASE  USER          ADDRESS                     METHOD
+local   all       postgres                                  peer
+local   all       all                                       peer
+# Rol de solo lectura de estadísticas para el OpenTelemetry Collector local
+host    postgres  otel_monitor  127.0.0.1/32                scram-sha-256
+host    all       all           127.0.0.1/32                scram-sha-256
+host    all       all           ::1/128                     scram-sha-256
+# Backend del tenant (el Security Group solo deja pasar a su backend)
+host    all       all           {{ database_allowed_cidr }}  scram-sha-256

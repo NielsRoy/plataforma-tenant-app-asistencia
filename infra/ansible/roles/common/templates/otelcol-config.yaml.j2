@@ -1,0 +1,71 @@
+# OpenTelemetry Collector: rol {{ image_role }}
+# Recibe o consulta métricas locales y las expone en formato Prometheus
+# en :{{ otelcol_prometheus_port }}/metrics para que Prometheus las lea.
+
+receivers:
+{% if image_role == 'backend' %}
+  # Métricas que envía el backend NestJS (src/telemetry.ts)
+  otlp:
+    protocols:
+      http:
+        endpoint: 127.0.0.1:4318
+  # Disponibilidad de la API (incluye la conexión a la base de datos)
+  httpcheck:
+    collection_interval: 15s
+    targets:
+      - endpoint: http://127.0.0.1:3000/api/health
+        method: GET
+{% elif image_role == 'frontend' %}
+  # Conexiones y peticiones de nginx (stub_status local)
+  nginx:
+    endpoint: http://127.0.0.1:8080/nginx_status
+    collection_interval: 15s
+  # Disponibilidad del sitio
+  httpcheck:
+    collection_interval: 15s
+    targets:
+      - endpoint: http://127.0.0.1/
+        method: GET
+{% elif image_role == 'database' %}
+  # Estado de PostgreSQL: conexiones, tamaño de las bases, commits, rollbacks...
+  # Usa el rol otel_monitor (solo pg_monitor y solo desde 127.0.0.1)
+  postgresql:
+    endpoint: 127.0.0.1:5432
+    transport: tcp
+    username: otel_monitor
+    password: "{{ otel_monitor_password }}"
+    collection_interval: 15s
+    tls:
+      insecure: true
+{% endif %}
+
+processors:
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: {{ otelcol_memory_limit_mib }}
+  batch: {}
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:{{ otelcol_prometheus_port }}
+    resource_to_telemetry_conversion:
+      enabled: true
+
+service:
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    metrics:
+      receivers:
+{% if image_role == 'backend' %}
+        - otlp
+        - httpcheck
+{% elif image_role == 'frontend' %}
+        - nginx
+        - httpcheck
+{% elif image_role == 'database' %}
+        - postgresql
+{% endif %}
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]

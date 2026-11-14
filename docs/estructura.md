@@ -16,8 +16,8 @@ control-asistencia-academica/
 │   │   ├── bootstrap/        Recursos que se crean una sola vez
 │   │   ├── modules/tenant/   (pendiente) Módulo reutilizable de un tenant
 │   │   └── tenant/           (pendiente) Stack raíz que se aplica por cada tenant
-│   ├── packer/               (pendiente) Plantilla de las AMIs
-│   ├── ansible/              (pendiente) Roles y playbooks
+│   ├── packer/               Plantilla de las AMIs
+│   ├── ansible/              Roles y playbooks
 │   └── cloud-init/           (pendiente) Plantillas de primer arranque
 ├── monitoring/               (pendiente) Prometheus y Grafana con docker compose
 ├── .gitattributes            Fuerza finales de línea LF en scripts y plantillas
@@ -80,13 +80,36 @@ Se aplica **una sola vez** por cuenta AWS. Su propio estado queda en local
 - `modules/tenant/`: módulo con los Security Groups, las 3 EC2 (frontend, backend, base de datos) y la IP elástica.
 - `tenant/`: stack raíz que usa el módulo. Se aplica una vez por tenant con un estado separado en S3 (`tenants/<slug>/terraform.tfstate`).
 
-## `infra/packer/` (pendiente)
+## `infra/packer/`
 Plantilla para construir las 3 AMIs (`frontend`, `backend`, `database`). Se construyen
 **una vez por versión**, no por tenant.
 
-## `infra/ansible/` (pendiente)
-- Roles: `common` (agentes de monitoreo), `frontend`, `backend` y `database`. Packer los usa para construir las AMIs.
-- Playbooks de despliegue: la plataforma los ejecuta después del `terraform apply`.
+| Archivo | Para qué sirve |
+| --- | --- |
+| `asistencia.pkr.hcl` | Plantilla de las imágenes. Parte de la AMI oficial de Ubuntu 24.04 y construye las 3 imágenes en paralelo como 3 `source` con nombre. Usa el SG temporal solo para tu IP, IMDSv2 y disco cifrado. Ejecuta el playbook `image.yml` de Ansible, limpia la máquina y etiqueta cada AMI con `Project`, `Role` e `ImageVersion`. |
+| `manifest.json` | Lo genera cada build con los IDs de las AMIs. No se versiona. |
+
+## `infra/ansible/`
+Configuración de las máquinas. Packer usa los roles al construir las imágenes. Los
+playbooks de despliegue (*pendiente*) los ejecutará la plataforma después del
+`terraform apply`.
+
+| Ruta | Para qué sirve |
+| --- | --- |
+| `ansible.cfg` | Rutas de roles y colecciones, sin comprobación de host key, `pipelining` para que sea más rápido. |
+| `playbooks/image.yml` | Playbook de Packer. Aplica `common` y el rol de la imagen (`image_role`) y registra la versión en `/etc/asistencia/image-release`. |
+| `roles/common/` | Lo que llevan las 3 imágenes. Desactiva las actualizaciones automáticas de apt, que bloquearían el despliegue. Instala, con versión fija y checksum: **node_exporter** `:9100`, **process-exporter** `:9256` (procesos nginx, node, postgres, otelcol, netdata), **OpenTelemetry Collector** `:8889` con config según el rol y **Netdata** `:19999` (datos solo en RAM, alertas desactivadas porque las gestiona Grafana). |
+| `roles/frontend/` | nginx con una página provisional "institución en preparación" y `stub_status` en `127.0.0.1:8080` para el collector. El sitio real, con proxy a `/api`, lo escribe el despliegue. |
+| `roles/backend/` | Node.js 22 en `/opt` y el usuario `asistencia`. Crea el servicio `asistencia-api` (systemd), que no arranca hasta que el despliegue copie el código y `/etc/asistencia/api.env`. |
+| `roles/database/` | PostgreSQL 16 con contraseñas `scram-sha-256` y acceso solo desde la red de la VPC. Crea el rol `otel_monitor` (`pg_monitor`, solo desde `127.0.0.1`), que el collector usa para leer estadísticas. |
+
+**Qué mide el OpenTelemetry Collector en cada rol:**
+
+| Rol | Receptores | Métricas que entrega |
+| --- | --- | --- |
+| backend | `otlp` (recibe lo que envía `telemetry.ts`) + `httpcheck` de `/api/health` | Latencia, errores 5xx y disponibilidad de la API con su BD |
+| frontend | `nginx` (`stub_status`) + `httpcheck` de `/` | Conexiones, peticiones y disponibilidad del sitio |
+| database | `postgresql` | Conexiones, tamaño de las bases, commits y rollbacks |
 
 ## `infra/cloud-init/` (pendiente)
 Plantillas de primer arranque por rol. Terraform las renderiza con los datos del tenant

@@ -1,0 +1,41 @@
+# Playbook que usa Packer para construir las AMIs.
+# Instala lo común (agentes de monitoreo) y lo específico del rol de la imagen.
+#   image_role: frontend | backend | database  (lo pasa Packer)
+- name: Construir imagen {{ image_role }}
+  hosts: all
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Validar el rol de la imagen
+      ansible.builtin.assert:
+        that:
+          - image_role is defined
+          - image_role in ['frontend', 'backend', 'database']
+        fail_msg: "image_role debe ser frontend, backend o database"
+
+    # Contraseña del rol de PostgreSQL que usa el OpenTelemetry Collector para leer
+    # estadísticas. Se fija una sola vez (set_fact) porque la usan el rol common
+    # (config del collector) y el rol database (creación del rol en PostgreSQL).
+    - name: Generar la contraseña del monitor de PostgreSQL
+      ansible.builtin.set_fact:
+        otel_monitor_password: "{{ lookup('ansible.builtin.password', '/dev/null', chars=['ascii_letters', 'digits'], length=32) }}"
+      when: image_role == 'database'
+      no_log: true
+
+  roles:
+    - role: common
+
+  tasks:
+    - name: Aplicar el rol específico de la imagen
+      ansible.builtin.include_role:
+        name: "{{ image_role }}"
+
+    - name: Registrar la versión de la imagen
+      ansible.builtin.copy:
+        dest: /etc/asistencia/image-release
+        mode: "0644"
+        content: |
+          IMAGE_ROLE={{ image_role }}
+          IMAGE_VERSION={{ image_version | default('dev') }}
+          BUILT_AT={{ ansible_date_time.iso8601 }}

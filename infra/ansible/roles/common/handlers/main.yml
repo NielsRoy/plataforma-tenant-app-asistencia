@@ -1,0 +1,23 @@
+- name: Recargar systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Reiniciar node_exporter
+  ansible.builtin.systemd_service:
+    name: node_exporter
+    state: restarted
+
+- name: Reiniciar process-exporter
+  ansible.builtin.systemd_service:
+    name: process-exporter
+    state: restarted
+
+- name: Reiniciar otelcol
+  ansible.builtin.systemd_service:
+    name: otelcol-contrib
+    state: restarted
+
+- name: Reiniciar netdata
+  ansible.builtin.systemd_service:
+    name: netdata
+    state: restarted

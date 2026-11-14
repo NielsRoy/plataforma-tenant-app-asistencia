@@ -88,7 +88,20 @@ Get-Content infra/terraform/tenant/backend.hcl
 
 ⚠️ No borres `infra/terraform/bootstrap/terraform.tfstate`: queda solo en tu PC.
 
-## Paso 7. Construir las AMIs con Packer (*pendiente*)
+## Paso 7. Construir las AMIs con Packer (una vez por versión)
+
+```powershell
+./scripts/iac.ps1 packer validate infra/packer
+./scripts/iac.ps1 packer build infra/packer
+aws ec2 describe-images --owners self --filters "Name=tag:Project,Values=asistencia" --query "Images[].[Name,ImageId,State]" --output table
+```
+
+✅ **Esperado:**
+- `validate` muestra `The configuration is valid.`
+- `build` tarda entre 10 y 15 minutos y termina con 3 AMIs creadas: frontend, backend y database.
+- La tabla final muestra las 3 AMIs `available`.
+
+Detalle y solución de problemas: [comandos-manuales.md §4](comandos-manuales.md#4-amis-con-packer-una-vez-por-versión-de-las-imágenes).
 
 ## Paso 8. Levantar Prometheus y Grafana (*pendiente*)
 

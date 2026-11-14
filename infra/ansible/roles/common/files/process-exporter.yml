@@ -1,0 +1,11 @@
+# Grupos de procesos que se miden (CPU, memoria, hilos, E/S por grupo).
+# El nombre del grupo es el nombre del comando.
+process_names:
+  - name: "{{.Comm}}"
+    comm:
+      - nginx
+      - node
+      - postgres
+      - otelcol-contrib
+      - netdata
+      - node_exporter

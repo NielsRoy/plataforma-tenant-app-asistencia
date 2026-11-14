@@ -1,0 +1,176 @@
+# Rol común a las 3 imágenes: sistema base y agentes de monitoreo.
+
+# --- Sistema base ---------------------------------------------------------------
+# Las actualizaciones automáticas toman el lock de apt al arrancar y harían fallar
+# el despliegue de Ansible. Las imágenes se actualizan reconstruyéndolas con Packer.
+- name: Desactivar actualizaciones automáticas de apt
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  loop:
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+    - unattended-upgrades.service
+  failed_when: false
+
+- name: Instalar paquetes base
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - jq
+      - unzip
+      - xz-utils
+      - acl
+      - netcat-openbsd
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Actualizar los paquetes del sistema
+  ansible.builtin.apt:
+    upgrade: safe
+
+- name: Crear el directorio de configuración del proyecto
+  ansible.builtin.file:
+    path: /etc/asistencia
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# --- node_exporter: métricas del sistema operativo (CPU, RAM, disco, red) -----------
+- name: Crear el usuario de los exporters
+  ansible.builtin.user:
+    name: prometheus
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+- name: Descargar node_exporter
+  ansible.builtin.get_url:
+    url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    dest: "/tmp/node_exporter.tar.gz"
+    checksum: "sha256:{{ node_exporter_sha256 }}"
+    mode: "0644"
+
+- name: Instalar el binario de node_exporter
+  ansible.builtin.unarchive:
+    src: /tmp/node_exporter.tar.gz
+    dest: /usr/local/bin
+    remote_src: true
+    extra_opts: [--strip-components=1, --wildcards, "*/node_exporter"]
+    creates: /usr/local/bin/node_exporter
+  notify: Reiniciar node_exporter
+
+- name: Crear el servicio de node_exporter
+  ansible.builtin.template:
+    src: node_exporter.service.j2
+    dest: /etc/systemd/system/node_exporter.service
+    mode: "0644"
+  notify: [Recargar systemd, Reiniciar node_exporter]
+
+# --- process-exporter: métricas por proceso (nginx, node, postgres...) --------------
+- name: Descargar process-exporter
+  ansible.builtin.get_url:
+    url: "https://github.com/ncabatoff/process-exporter/releases/download/v{{ process_exporter_version }}/process-exporter-{{ process_exporter_version }}.linux-amd64.tar.gz"
+    dest: "/tmp/process-exporter.tar.gz"
+    checksum: "sha256:{{ process_exporter_sha256 }}"
+    mode: "0644"
+
+- name: Instalar el binario de process-exporter
+  ansible.builtin.unarchive:
+    src: /tmp/process-exporter.tar.gz
+    dest: /usr/local/bin
+    remote_src: true
+    extra_opts: [--strip-components=1, --wildcards, "*/process-exporter"]
+    creates: /usr/local/bin/process-exporter
+  notify: Reiniciar process-exporter
+
+- name: Crear el directorio de configuración de process-exporter
+  ansible.builtin.file:
+    path: /etc/process-exporter
+    state: directory
+    mode: "0755"
+
+# Archivo estático (no plantilla): usa la sintaxis {{.Comm}} de process-exporter
+- name: Configurar los procesos que vigila process-exporter
+  ansible.builtin.copy:
+    src: process-exporter.yml
+    dest: /etc/process-exporter/config.yml
+    mode: "0644"
+  notify: Reiniciar process-exporter
+
+- name: Crear el servicio de process-exporter
+  ansible.builtin.template:
+    src: process-exporter.service.j2
+    dest: /etc/systemd/system/process-exporter.service
+    mode: "0644"
+  notify: [Recargar systemd, Reiniciar process-exporter]
+
+# --- OpenTelemetry Collector: métricas de la app, de nginx y de PostgreSQL ----------
+- name: Descargar OpenTelemetry Collector (contrib)
+  ansible.builtin.get_url:
+    url: "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v{{ otelcol_version }}/otelcol-contrib_{{ otelcol_version }}_linux_amd64.deb"
+    dest: "/tmp/otelcol-contrib.deb"
+    checksum: "sha256:{{ otelcol_sha256 }}"
+    mode: "0644"
+
+- name: Instalar OpenTelemetry Collector
+  ansible.builtin.apt:
+    deb: /tmp/otelcol-contrib.deb
+
+- name: Configurar OpenTelemetry Collector para el rol {{ image_role }}
+  ansible.builtin.template:
+    src: otelcol-config.yaml.j2
+    dest: /etc/otelcol-contrib/config.yaml
+    owner: root
+    group: otelcol-contrib
+    mode: "0640"
+  no_log: "{{ image_role == 'database' }}"
+  notify: Reiniciar otelcol
+
+# --- Netdata: panel en tiempo real por máquina + endpoint Prometheus ----------------
+- name: Instalar Netdata
+  ansible.builtin.apt:
+    name: netdata
+    state: present
+
+- name: Configurar Netdata
+  ansible.builtin.template:
+    src: netdata.conf.j2
+    dest: /etc/netdata/netdata.conf
+    mode: "0644"
+  notify: Reiniciar netdata
+
+- name: Desactivar las estadísticas anónimas de Netdata
+  ansible.builtin.file:
+    path: /etc/netdata/.opt-out-from-anonymous-statistics
+    state: touch
+    mode: "0644"
+    modification_time: preserve
+    access_time: preserve
+
+# --- Arranque de los agentes --------------------------------------------------------
+- name: Aplicar cambios pendientes de systemd
+  ansible.builtin.meta: flush_handlers
+
+- name: Habilitar y arrancar los agentes de monitoreo
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - node_exporter
+    - process-exporter
+    - otelcol-contrib
+    - netdata
+
+- name: Eliminar las descargas temporales
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/node_exporter.tar.gz
+    - /tmp/process-exporter.tar.gz
+    - /tmp/otelcol-contrib.deb

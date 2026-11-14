@@ -1,0 +1,60 @@
+# Imagen backend: Node.js y el servicio systemd de la API.
+# El código de la app y su .env los copia el playbook de despliegue.
+
+- name: Descargar Node.js {{ nodejs_version }}
+  ansible.builtin.get_url:
+    url: "https://nodejs.org/dist/v{{ nodejs_version }}/node-v{{ nodejs_version }}-linux-x64.tar.xz"
+    dest: /tmp/node.tar.xz
+    checksum: "sha256:{{ nodejs_sha256 }}"
+    mode: "0644"
+
+- name: Instalar Node.js en /opt
+  ansible.builtin.unarchive:
+    src: /tmp/node.tar.xz
+    dest: /opt
+    remote_src: true
+    creates: "/opt/node-v{{ nodejs_version }}-linux-x64/bin/node"
+
+- name: Enlazar node, npm y npx en el PATH
+  ansible.builtin.file:
+    src: "/opt/node-v{{ nodejs_version }}-linux-x64/bin/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+  loop: [node, npm, npx]
+
+- name: Eliminar la descarga de Node.js
+  ansible.builtin.file:
+    path: /tmp/node.tar.xz
+    state: absent
+
+- name: Crear el usuario de la API
+  ansible.builtin.user:
+    name: "{{ api_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ api_home }}"
+    create_home: false
+
+- name: Crear los directorios de la API
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ api_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ api_home }}", owner: "{{ api_user }}", mode: "0755" }
+    - { path: "{{ api_home }}/releases", owner: "{{ api_user }}", mode: "0755" }
+
+# El servicio queda habilitado pero no arranca hasta que existan el código y el .env
+- name: Crear el servicio de la API
+  ansible.builtin.template:
+    src: asistencia-api.service.j2
+    dest: /etc/systemd/system/asistencia-api.service
+    mode: "0644"
+
+- name: Habilitar el servicio de la API
+  ansible.builtin.systemd_service:
+    name: asistencia-api
+    enabled: true
+    daemon_reload: true

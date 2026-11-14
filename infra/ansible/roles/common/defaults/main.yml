@@ -1,0 +1,19 @@
+# Versiones fijas de los agentes de monitoreo (con su checksum SHA-256 oficial)
+node_exporter_version: "1.12.1"
+node_exporter_sha256: "b51d8a76aa2a9156a55d501aca6276fae09e262259a5e4e831d2c2222f084e63"
+node_exporter_port: 9100
+
+process_exporter_version: "0.8.7"
+process_exporter_sha256: "6d274cca5e94c6a25e55ec05762a472561859ce0a05b984aaedb67dd857ceee2"
+process_exporter_port: 9256
+
+otelcol_version: "0.164.0"
+otelcol_sha256: "1995260c54cf5d74964a85e5e7d27834bb9a252c87a2582a4fb6a6c34565a90d"
+otelcol_prometheus_port: 8889
+# Límite de memoria del collector (las EC2 del Free Tier tienen 1 GiB)
+otelcol_memory_limit_mib: 128
+
+netdata_port: 19999
+
+# Rol de la imagen; lo define el playbook (frontend | backend | database)
+image_role: ""

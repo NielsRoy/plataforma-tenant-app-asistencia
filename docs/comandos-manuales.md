@@ -104,4 +104,72 @@ activado, y ejecuta:
 
 ## 4. AMIs con Packer (una vez por versión de las imágenes)
 
-*Pendiente.*
+Packer construye las 3 imágenes que usan todos los tenants: `frontend`, `backend` y
+`database`. **No se construyen por tenant.** Solo se reconstruyen cuando cambian los
+roles de Ansible o la versión de algún agente.
+
+Cómo funciona `packer build`:
+1. Lanza 3 EC2 `t3.micro` temporales en paralelo, a partir de la AMI oficial más reciente de Ubuntu 24.04.
+2. Crea un Security Group temporal que solo admite SSH desde tu IP.
+3. Ejecuta `infra/ansible/playbooks/image.yml` en cada máquina: el rol `common` instala los agentes de monitoreo y el rol de cada imagen instala lo suyo (nginx, Node.js 22 o PostgreSQL 16).
+4. Limpia la máquina (machine-id, claves SSH), crea la AMI y termina la EC2 temporal.
+
+### 4.1 Validar y construir
+
+```powershell
+./scripts/iac.ps1 packer validate infra/packer
+./scripts/iac.ps1 packer build infra/packer
+```
+
+El `build` tarda entre 10 y 15 minutos. Al final muestra algo como:
+
+```
+==> Builds finished. The artifacts of successful builds are:
+--> asistencia.amazon-ebs.frontend: AMIs were created:
+us-east-1: ami-0123...
+--> asistencia.amazon-ebs.backend: ...
+--> asistencia.amazon-ebs.database: ...
+```
+
+También genera `infra/packer/manifest.json` (ignorado por git) con los IDs de las AMIs.
+
+**Construir una sola imagen**, por ejemplo tras cambiar solo el rol `backend`:
+
+```powershell
+./scripts/iac.ps1 packer build "-only=asistencia.amazon-ebs.backend" infra/packer   # comillas: PowerShell 5.1
+```
+
+**Nueva versión de imágenes**:
+
+```powershell
+./scripts/iac.ps1 packer build -var image_version=1.1.0 infra/packer
+```
+
+Terraform usa siempre la AMI más reciente de cada rol (tags `Project=asistencia` y
+`Role=<rol>`).
+
+### 4.2 Verificar
+
+```powershell
+aws ec2 describe-images --owners self --filters "Name=tag:Project,Values=asistencia" --query "Images[].[Name,ImageId,State]" --output table
+```
+
+Deben aparecer 3 AMIs en estado `available`.
+
+### 4.3 Si algo falla
+
+- **El build se interrumpe:** Packer termina la EC2 temporal y borra el SG y el key pair temporales. Revisa en la consola de EC2 que no haya quedado ninguna instancia `packer-build-asistencia` en ejecución.
+- **Ver más detalle:** ejecuta `$env:PACKER_LOG=1` y vuelve a lanzar el build; `scripts/iac.ps1` pasa la variable al contenedor. Para desactivarlo: `Remove-Item env:PACKER_LOG`.
+
+### 4.4 Costos y limpieza
+
+- Cada build usa 3 `t3.micro` durante unos 15 minutos, dentro del Free Tier.
+- Cada AMI guarda un snapshot EBS de 8 GB, cifrado. Se cobra solo el espacio usado, unos 2 a 3 GB por imagen.
+
+Para borrar una AMI antigua:
+
+```powershell
+aws ec2 deregister-image --image-id <ami-id>
+aws ec2 describe-snapshots --owner-ids self --filters "Name=tag:Project,Values=asistencia" --query "Snapshots[].[SnapshotId,StartTime]" --output table
+aws ec2 delete-snapshot --snapshot-id <snap-id>
+```

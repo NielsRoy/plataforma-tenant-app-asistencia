@@ -12,7 +12,8 @@
     si estás dentro del repositorio.
   - Monta ~/.aws en solo lectura (credenciales del perfil local).
   - Monta la carpeta de claves SSH del proyecto (por defecto ~/.ssh/asistencia).
-  - Pasa al contenedor AWS_PROFILE, AWS_REGION, AWS_DEFAULT_REGION y toda variable TF_VAR_* o PKR_VAR_*.
+  - Pasa al contenedor AWS_PROFILE, AWS_REGION, AWS_DEFAULT_REGION, PACKER_LOG, TF_LOG
+    y toda variable TF_VAR_* o PKR_VAR_*.
   - No declara parametros: usa $args para que opciones como -c o -chdir lleguen
     intactas al contenedor (PowerShell abreviaria -c como un parametro propio).
 #>
@@ -50,7 +51,7 @@ if (Test-Path $sshDir) {
     $dockerArgs += @('-v', "${sshDir}:/mnt/ssh:ro")
 }
 
-foreach ($name in @('AWS_PROFILE', 'AWS_REGION', 'AWS_DEFAULT_REGION')) {
+foreach ($name in @('AWS_PROFILE', 'AWS_REGION', 'AWS_DEFAULT_REGION', 'PACKER_LOG', 'TF_LOG')) {
     if (Test-Path "env:$name") { $dockerArgs += @('-e', $name) }
 }
 Get-ChildItem env: | Where-Object { $_.Name -like 'TF_VAR_*' -or $_.Name -like 'PKR_VAR_*' } | ForEach-Object {

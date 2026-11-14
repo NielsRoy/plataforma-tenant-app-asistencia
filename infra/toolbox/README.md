@@ -37,7 +37,7 @@ docker build -t asistencia-iac-toolbox:1 infra/toolbox
 | Raíz del repositorio | `/workspace`. Se conserva tu directorio actual. |
 | `~/.aws` | Montado solo lectura. Lo usa el perfil de credenciales de AWS. |
 | `~/.ssh/asistencia` (cambia con `ASISTENCIA_SSH_DIR`) | Las claves se copian a `/root/.ssh` con permisos `600`. Es necesario porque Windows monta los archivos con `777` y `ssh` los rechaza. |
-| Variables `AWS_PROFILE`, `AWS_REGION` y `AWS_DEFAULT_REGION` | Se pasan tal cual. |
+| Variables `AWS_PROFILE`, `AWS_REGION`, `AWS_DEFAULT_REGION`, `PACKER_LOG` y `TF_LOG` | Se pasan tal cual. |
 | Toda variable `TF_VAR_*` y `PKR_VAR_*` | Se pasan tal cual. |
 
 Para usar otra etiqueta de imagen, define `IAC_TOOLBOX_IMAGE`.

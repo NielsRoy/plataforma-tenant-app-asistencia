@@ -1,0 +1,20 @@
+# Netdata: panel en tiempo real de la máquina (http://<ip>:{{ netdata_port }}).
+# Los datos se guardan solo en RAM y por poco tiempo: el histórico vive en Prometheus.
+[global]
+    run as user = netdata
+    # Sin "hostname": se usa el de la EC2, que define cloud-init (p. ej. demo-a-backend)
+
+[db]
+    mode = ram
+    retention = 1800
+    update every = 2
+
+[web]
+    bind to = 0.0.0.0:{{ netdata_port }}
+
+[ml]
+    enabled = no
+
+[health]
+    # Las alertas las gestiona Grafana
+    enabled = no

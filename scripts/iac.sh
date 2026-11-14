@@ -21,7 +21,7 @@ args=(run --rm -v "$repo_root:/workspace" -w "$workdir")
 [ -d "$HOME/.aws" ] && args+=(-v "$HOME/.aws:/root/.aws:ro")
 [ -d "$ssh_dir" ] && args+=(-v "$ssh_dir:/mnt/ssh:ro")
 
-for name in AWS_PROFILE AWS_REGION AWS_DEFAULT_REGION; do
+for name in AWS_PROFILE AWS_REGION AWS_DEFAULT_REGION PACKER_LOG TF_LOG; do
   [ -n "${!name:-}" ] && args+=(-e "$name")
 done
 while IFS='=' read -r name _; do

@@ -1,0 +1,7 @@
+# PostgreSQL de Ubuntu 24.04
+postgresql_version: "16"
+postgresql_conf_dir: "/etc/postgresql/{{ postgresql_version }}/main"
+# Red desde la que se aceptan conexiones con contraseña. Es la red de la VPC por
+# defecto de AWS; el Security Group del tenant restringe además el acceso al
+# backend de ese tenant.
+database_allowed_cidr: "172.31.0.0/16"

@@ -1,0 +1,53 @@
+# Imagen database: PostgreSQL y el rol de monitoreo.
+# La base y el usuario del tenant los crea el playbook de despliegue.
+
+- name: Instalar PostgreSQL {{ postgresql_version }}
+  ansible.builtin.apt:
+    name:
+      - "postgresql-{{ postgresql_version }}"
+      - python3-psycopg2
+    state: present
+
+- name: Ajustes de PostgreSQL
+  ansible.builtin.template:
+    src: 99-asistencia.conf.j2
+    dest: "{{ postgresql_conf_dir }}/conf.d/99-asistencia.conf"
+    owner: postgres
+    group: postgres
+    mode: "0644"
+  notify: Reiniciar postgresql
+
+- name: Reglas de acceso (pg_hba.conf)
+  ansible.builtin.template:
+    src: pg_hba.conf.j2
+    dest: "{{ postgresql_conf_dir }}/pg_hba.conf"
+    owner: postgres
+    group: postgres
+    mode: "0640"
+  notify: Reiniciar postgresql
+
+- name: Habilitar y arrancar PostgreSQL
+  ansible.builtin.systemd_service:
+    name: postgresql
+    enabled: true
+    state: started
+
+- name: Aplicar la configuración de PostgreSQL
+  ansible.builtin.meta: flush_handlers
+
+- name: Crear el rol de monitoreo para el OpenTelemetry Collector
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_user:
+    name: otel_monitor
+    password: "{{ otel_monitor_password }}"
+    role_attr_flags: LOGIN
+  no_log: true
+
+- name: Darle permisos de lectura de estadísticas (pg_monitor)
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_membership:
+    group: pg_monitor
+    target_roles: [otel_monitor]
+    state: present
