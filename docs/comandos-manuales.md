@@ -6,7 +6,7 @@ raíz del repositorio, en PowerShell.
 
 La plataforma automatiza la creación, suspensión, reanudación y eliminación de los
 tenants. La versión manual de esos pasos estará en la guía `tenant-manual.md`
-(pendiente).
+(pendiente). La §5 prueba solo la parte de Terraform.
 
 ## 0. Requisitos en la PC
 
@@ -205,3 +205,73 @@ aws ec2 delete-snapshot --snapshot-id <snap-id>
 2. Selecciona la AMI y anota el **Snapshot ID** que aparece en la pestaña **Storage** (*Block devices*).
 3. **Actions → Deregister AMI → Deregister**. En consolas recientes, marca **Delete associated snapshots** y omite el paso 4.
 4. Menú izquierdo **Elastic Block Store → Snapshots**, selecciona el snapshot anotado → **Actions → Delete snapshot → Delete**.
+
+## 5. Probar el stack de un tenant con Terraform (opcional)
+
+La plataforma automatiza estos pasos. Aquí se ejecutan a mano solo para comprobar la
+infraestructura de un tenant de prueba, `demo`. La guía completa, con Ansible y el
+despliegue de la app, estará en `tenant-manual.md` (pendiente).
+
+### 5.1 Variables del tenant
+
+```powershell
+(Invoke-RestMethod https://checkip.amazonaws.com).Trim()      # tu IP pública
+Copy-Item infra/terraform/tenant/demo.tfvars.example infra/terraform/tenant/demo.tfvars
+```
+
+En `demo.tfvars`, cambia `operator_cidrs` por tu IP con `/32`, por ejemplo
+`["190.129.10.20/32"]`. Solo esa IP podrá entrar por SSH y leer las métricas.
+
+### 5.2 Init, plan y apply
+
+```powershell
+./scripts/iac.ps1 terraform -chdir=infra/terraform/tenant init -reconfigure "-backend-config=backend.hcl" "-backend-config=key=tenants/demo/terraform.tfstate"
+./scripts/iac.ps1 terraform -chdir=infra/terraform/tenant plan "-var-file=demo.tfvars" -out=tfplan
+./scripts/iac.ps1 terraform -chdir=infra/terraform/tenant apply tfplan
+./scripts/iac.ps1 terraform -chdir=infra/terraform/tenant output
+```
+
+| Comando | Qué hace |
+| --- | --- |
+| `init -reconfigure` | Conecta el stack al estado `tenants/demo/terraform.tfstate` del bucket. `-reconfigure` es necesario al cambiar de tenant, porque la carpeta es la misma para todos. Las comillas evitan que PowerShell 5.1 parta los argumentos con punto. |
+| `plan` | Debe proponer **32 recursos**: 3 EC2, 3 Security Groups, 21 reglas, 3 `aws_ec2_instance_state`, la IP elástica y su asociación. |
+| `apply` | Crea los recursos en 1 a 2 minutos. |
+| `output` | Muestra el contrato de outputs: `app_url`, IPs, IDs de las EC2 y AMIs. |
+
+### 5.3 Verificar
+
+```powershell
+ssh -i "$HOME\.ssh\asistencia\asistencia_ed25519" ubuntu@<frontend_public_ip> "hostname; cat /etc/asistencia/identity.env /etc/asistencia/image-release"
+curl.exe -s -o NUL -w "%{http_code}`n" http://<frontend_public_ip>/
+curl.exe -s http://<frontend_public_ip>:9100/metrics | Select-Object -First 3
+```
+
+- El `ssh` muestra `demo-frontend`, `TENANT=demo`, `ROLE=frontend` y el `APP_COMMIT` de la app.
+- El primer `curl` devuelve `200`: nginx sirve el build de React. Las llamadas a `/api` todavía fallan, porque el proxy al backend lo configura el despliegue con Ansible.
+- El segundo `curl` muestra métricas de node_exporter. Responde porque tu IP está en `operator_cidrs`.
+- En la consola de EC2 aparecen `asistencia-demo-frontend`, `-backend` y `-database`.
+
+**Aislamiento:** desde internet, `:3000` del backend y `:5432` de la base de datos no
+responden. Solo los alcanzan el frontend y el backend del mismo tenant, por sus
+Security Groups.
+
+```powershell
+Test-NetConnection <public_ips.backend> -Port 3000      # TcpTestSucceeded : False
+```
+
+### 5.4 Suspender, reanudar y eliminar
+
+```powershell
+./scripts/iac.ps1 terraform -chdir=infra/terraform/tenant apply "-var-file=demo.tfvars" -var desired_state=stopped
+./scripts/iac.ps1 terraform -chdir=infra/terraform/tenant apply "-var-file=demo.tfvars" -var desired_state=running
+./scripts/iac.ps1 terraform -chdir=infra/terraform/tenant destroy "-var-file=demo.tfvars"
+```
+
+- **Suspender** detiene las 3 EC2. No cobra horas de cómputo, pero sí los discos y la IP elástica.
+- **Reanudar** las vuelve a arrancar. La IP del frontend no cambia, porque es elástica. Las de backend y database sí cambian; el siguiente `plan` o `apply` las actualiza en los outputs.
+- **Eliminar** borra todo, incluidos los datos. Escribe `yes` para confirmar.
+
+> **Costos.** Cada tenant usa 3 `t3.micro` y 3 discos de 8 GB (24 GB). El Free Tier
+> incluye 750 horas al mes de t3.micro **en total** (3 EC2 encendidas consumen 3 horas
+> por hora), 30 GB de EBS y 750 horas de IPv4 pública. Con 2 tenants se superan los
+> 30 GB de EBS. **Elimina o suspende el tenant de prueba al terminar.**

@@ -14,11 +14,11 @@ control-asistencia-academica/
 │   ├── toolbox/              Imagen Docker con las herramientas IaC
 │   ├── terraform/            Código Terraform
 │   │   ├── bootstrap/        Recursos que se crean una sola vez
-│   │   ├── modules/tenant/   (pendiente) Módulo reutilizable de un tenant
-│   │   └── tenant/           (pendiente) Stack raíz que se aplica por cada tenant
+│   │   ├── modules/tenant/   Módulo reutilizable de un tenant
+│   │   └── tenant/           Stack raíz que se aplica por cada tenant
 │   ├── packer/               Plantilla de las AMIs
 │   ├── ansible/              Roles y playbooks
-│   └── cloud-init/           (pendiente) Plantillas de primer arranque
+│   └── cloud-init/           Plantilla de primer arranque
 ├── monitoring/               (pendiente) Prometheus y Grafana con docker compose
 ├── .gitattributes            Fuerza finales de línea LF en scripts y plantillas
 └── .gitignore                Excluye estado de Terraform, *.tfvars, claves, artefactos
@@ -76,9 +76,41 @@ Se aplica **una sola vez** por cuenta AWS. Su propio estado queda en local
 | `terraform.tfvars.example` | Ejemplo para cambiar los valores por defecto. El `terraform.tfvars` real no se versiona. |
 | `.terraform.lock.hcl` | Lo genera `terraform init`. Fija las versiones exactas de los providers y **sí se versiona**. |
 
-### Pendiente
-- `modules/tenant/`: módulo con los Security Groups, las 3 EC2 (frontend, backend, base de datos) y la IP elástica.
-- `tenant/`: stack raíz que usa el módulo. Se aplica una vez por tenant con un estado separado en S3 (`tenants/<slug>/terraform.tfstate`).
+### `modules/tenant/`
+Módulo reutilizable con todo lo de **un** tenant. No sabe nada del estado remoto ni
+de la plataforma: recibe variables y devuelve el contrato de outputs.
+
+| Archivo | Para qué sirve |
+| --- | --- |
+| `versions.tf` | Versión mínima de Terraform y provider `aws ~> 6.0`. |
+| `variables.tf` | `tenant_slug` (validado: minúsculas, números y guiones, hasta 42 caracteres), `environment` (`production` o `staging`), `instance_types` y `volume_sizes` por rol (los define el plan), `image_version` (`null` = AMI más reciente), `operator_cidrs` (tu IP; rechaza `0.0.0.0/0`), puertos de métricas, zona y `desired_state` (`running` o `stopped`). |
+| `main.tf` | Lee la VPC por defecto y elige una zona que ofrezca los tipos de instancia del plan. Busca las AMIs por los tags `Project` y `Role`. Crea un Security Group por rol con las reglas de la tabla de abajo, las 3 EC2 (IMDSv2, disco gp3 cifrado, cloud-init en `user_data`), la IP elástica del frontend y un `aws_ec2_instance_state` por EC2 para suspender y reanudar. |
+| `outputs.tf` | Contrato de outputs: `app_url`, `frontend_public_ip`, `backend_private_ip`, `database_private_ip`, `public_ips`, `private_ips`, `instance_ids`, `ami_ids`, `security_group_ids`… Un motor futuro (Pulumi, CloudFormation) debe devolver los mismos nombres. |
+
+| Security Group | Entrada permitida |
+| --- | --- |
+| `asistencia-<slug>-frontend` | `:80` desde internet |
+| `asistencia-<slug>-backend` | `:3000` solo desde el SG frontend **del mismo tenant** |
+| `asistencia-<slug>-database` | `:5432` solo desde el SG backend **del mismo tenant** |
+| Los 3 | `:22`, `:9100`, `:9256`, `:8889` y `:19999` solo desde `operator_cidrs` |
+
+Las EC2 ignoran cambios de `ami` y `user_data` (`ignore_changes`). Así, una AMI nueva
+**no reemplaza** la EC2 de base de datos ni borra sus datos. Para actualizar una EC2 a
+propósito se usa `terraform apply -replace=...`.
+
+### `tenant/`
+Stack raíz que se aplica **una vez por tenant**. Cada tenant tiene su propio estado
+en S3 (`tenants/<slug>/terraform.tfstate`), así que un error en uno no afecta a los
+demás.
+
+| Archivo | Para qué sirve |
+| --- | --- |
+| `versions.tf` | Backend `s3` parcial (los datos vienen de `backend.hcl` y la key de `-backend-config`), provider y etiquetas por defecto (`Project`, `Component=tenant`, `ManagedBy`). |
+| `variables.tf`, `main.tf` | Pasan las variables al módulo `../modules/tenant`. |
+| `outputs.tf` | Reexpone el contrato de outputs. Lo leen `terraform output -json`, la plataforma y el inventario de Ansible. |
+| `demo.tfvars.example` | Ejemplo de variables de un tenant. Los `.tfvars` reales no se versionan. |
+| `backend.hcl` | Lo genera el bootstrap. No se versiona. |
+| `.terraform.lock.hcl` | Versiones exactas de los providers. **Sí se versiona**. |
 
 ## `infra/packer/`
 Plantilla para construir las 3 AMIs (`frontend`, `backend`, `database`). Se construyen
@@ -113,9 +145,13 @@ playbooks de despliegue (*pendiente*) los ejecutará la plataforma después del
 | frontend | `nginx` (`stub_status`) + `httpcheck` de `/` | Conexiones, peticiones y disponibilidad del sitio |
 | database | `postgresql` | Conexiones, tamaño de las bases, commits y rollbacks |
 
-## `infra/cloud-init/` (pendiente)
-Plantillas de primer arranque por rol. Terraform las renderiza con los datos del tenant
-y las entrega como `user_data`.
+## `infra/cloud-init/`
+Primer arranque de cada EC2. Terraform renderiza la plantilla con `templatefile()` y la
+entrega como `user_data`.
+
+| Archivo | Para qué sirve |
+| --- | --- |
+| `node.yaml.tftpl` | La usan los 3 roles. Pone el hostname `<slug>-<rol>` (lo muestran netdata y los logs), la zona horaria y `/etc/asistencia/identity.env` con proyecto, tenant, rol y entorno, y reinicia netdata y el collector para que tomen el nombre nuevo. **No lleva secretos**: `user_data` queda en el estado de Terraform y se puede leer desde la API de EC2. Los secretos los escribe Ansible. |
 
 ## `monitoring/` (pendiente)
 Archivo `docker-compose.yml` con Prometheus y Grafana, más la configuración de cada

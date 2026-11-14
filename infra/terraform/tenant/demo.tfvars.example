@@ -1,0 +1,19 @@
+# Copia este archivo como <slug>.tfvars (ignorado por git) para un tenant manual.
+# La plataforma genera el suyo automáticamente en .workspaces/.
+
+tenant_slug = "demo"
+environment = "staging"
+
+# Tu IP pública con /32. Obtenla con:
+#   (Invoke-RestMethod https://checkip.amazonaws.com).Trim()
+operator_cidrs = ["203.0.113.10/32"]
+
+# Plan básico (Free Tier)
+instance_types = {
+  frontend = "t3.micro"
+  backend  = "t3.micro"
+  database = "t3.micro"
+}
+
+# desired_state = "stopped"   # suspender
+# image_version = "1.1.0"     # fijar una versión de las AMIs (por defecto, la más reciente)

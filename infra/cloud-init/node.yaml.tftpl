@@ -1,0 +1,25 @@
+#cloud-config
+# Primer arranque de cada EC2 de un tenant. Terraform la renderiza con templatefile()
+# y la entrega como user_data. NO lleva secretos: user_data queda en el estado de
+# Terraform y es visible desde la API de EC2. Los secretos los escribe Ansible.
+
+# Nombre de la máquina: lo usan netdata, node_exporter y los logs
+preserve_hostname: false
+hostname: ${hostname}
+
+timezone: ${timezone}
+
+write_files:
+  # Identidad de la máquina: la leen Ansible y los scripts de diagnóstico
+  - path: /etc/asistencia/identity.env
+    owner: root:root
+    permissions: "0644"
+    content: |
+      PROJECT=${project}
+      TENANT=${tenant}
+      ROLE=${role}
+      ENVIRONMENT=${environment}
+
+runcmd:
+  # netdata y el collector arrancaron antes del cambio de hostname
+  - [systemctl, restart, netdata, otelcol-contrib]
